@@ -1,5 +1,6 @@
 #include "MetricsClient.hh"
 
+#include <chrono>
 #include <fstream>
 #include <print>
 #include <sstream>
@@ -41,54 +42,30 @@ namespace Aero::Agent
 
     }
 
-    MetricsClient::~MetricsClient ()
-    {
-
-        close();
-
-    }
-
     bool MetricsClient::send (const ::aero::v1::MetricBatch& batch)
     {
 
-        if (!m_writer)
+        // the channel (and its TLS session) is reused; only the stream is per batch
+        ::grpc::ClientContext ctx { };
+        ctx.AddMetadata("authorization", "Bearer " + m_token);
+        ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds { 10 });
+
+        ::aero::v1::IngestAck ack { };
+        auto writer { m_stub->StreamMetrics(&ctx, &ack) };
+        writer->Write(batch);
+        writer->WritesDone();
+        ::grpc::Status status { writer->Finish() };
+
+        if (!status.ok())
         {
 
-            m_ctx = std::make_unique<::grpc::ClientContext>();
-            m_ctx->AddMetadata("authorization", "Bearer " + m_token);
-            m_writer = m_stub->StreamMetrics(m_ctx.get(), &m_ack);
-
-        }
-
-        if (!m_writer->Write(batch))
-        {
-
-            // stream is dead; collect the status for the log and drop it so the next call reconnects
-            ::grpc::Status status { m_writer->Finish() };
-            std::println("stream closed: {}", status.error_message());
-            m_writer.reset();
-            m_ctx.reset();
+            std::println("send rejected: {}", status.error_message());
 
             return false;
 
         }
 
-        return true;
-
-    }
-
-    void MetricsClient::close ()
-    {
-
-        if (m_writer)
-        {
-
-            m_writer->WritesDone();
-            m_writer->Finish();
-            m_writer.reset();
-            m_ctx.reset();
-
-        }
+        return ack.accepted() == 1ull;
 
     }
 

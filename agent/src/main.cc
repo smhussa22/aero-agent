@@ -124,7 +124,7 @@ int main (int argc, char** argv)
         if (!client.send(batch))
         {
 
-            std::println("send failed, retrying in {}s", interval_s);
+            std::println("batch not accepted, next attempt in {}s", interval_s);
 
         }
 
@@ -132,7 +132,6 @@ int main (int argc, char** argv)
 
     }
 
-    client.close();
     std::println("aero-agent stopped");
 
     return 0;
