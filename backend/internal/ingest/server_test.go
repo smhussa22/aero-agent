@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
@@ -36,11 +37,26 @@ func (f *fakePublisher) Publish(_ context.Context, key, value []byte) error {
 	return nil
 }
 
-// start serves an in-memory gRPC server and returns a client for it
-func start(t *testing.T, pub Publisher) aerov1.IngestServiceClient {
+// fakeTokens knows two hosts; anything else is unknown
+type fakeTokens struct{}
+
+func (fakeTokens) HostForToken(_ context.Context, token string) (string, error) {
+	switch token {
+	case "tok-a":
+		return "host-a", nil
+	case "tok-b":
+		return "host-b", nil
+	case "broken":
+		return "", errors.New("db down")
+	}
+	return "", ErrUnknownToken
+}
+
+// open starts an in-memory server behind the auth interceptor and opens a stream using token
+func open(t *testing.T, pub Publisher, token string) aerov1.IngestService_StreamMetricsClient {
 	t.Helper()
 	lis := bufconn.Listen(1 << 20)
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(grpc.StreamInterceptor(AuthInterceptor(fakeTokens{})))
 	aerov1.RegisterIngestServiceServer(srv, NewServer(pub))
 	go srv.Serve(lis)
 	t.Cleanup(srv.Stop)
@@ -52,7 +68,16 @@ func start(t *testing.T, pub Publisher) aerov1.IngestServiceClient {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { conn.Close() })
-	return aerov1.NewIngestServiceClient(conn)
+
+	ctx := context.Background()
+	if token != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token)
+	}
+	stream, err := aerov1.NewIngestServiceClient(conn).StreamMetrics(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return stream
 }
 
 func batch(host string) *aerov1.MetricBatch {
@@ -65,10 +90,7 @@ func batch(host string) *aerov1.MetricBatch {
 
 func TestStreamPublishesAndAcks(t *testing.T) {
 	pub := &fakePublisher{}
-	stream, err := start(t, pub).StreamMetrics(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	stream := open(t, pub, "tok-a")
 	for range 2 {
 		if err := stream.Send(batch("host-a")); err != nil {
 			t.Fatal(err)
@@ -88,13 +110,42 @@ func TestStreamPublishesAndAcks(t *testing.T) {
 	}
 }
 
+func TestAuthRejected(t *testing.T) {
+	for name, tc := range map[string]struct {
+		token string
+		want  codes.Code
+	}{
+		"missing token": {"", codes.Unauthenticated},
+		"wrong token":   {"nope", codes.Unauthenticated},
+		"backend error": {"broken", codes.Unavailable},
+	} {
+		pub := &fakePublisher{}
+		stream := open(t, pub, tc.token)
+		stream.Send(batch("host-a"))
+		_, err := stream.CloseAndRecv()
+		if status.Code(err) != tc.want || len(pub.keys) != 0 {
+			t.Errorf("%s: code=%v published=%d", name, status.Code(err), len(pub.keys))
+		}
+	}
+}
+
+func TestTokenCannotSpeakForAnotherHost(t *testing.T) {
+	pub := &fakePublisher{}
+	stream := open(t, pub, "tok-a")
+	stream.Send(batch("host-b"))
+	_, err := stream.CloseAndRecv()
+	if status.Code(err) != codes.PermissionDenied || len(pub.keys) != 0 {
+		t.Fatalf("code=%v published=%d", status.Code(err), len(pub.keys))
+	}
+}
+
 func TestInvalidBatchRejected(t *testing.T) {
 	for name, b := range map[string]*aerov1.MetricBatch{
 		"no host":      {CollectedAt: timestamppb.Now()},
-		"no timestamp": {HostId: "h"},
+		"no timestamp": {HostId: "host-a"},
 	} {
 		pub := &fakePublisher{}
-		stream, _ := start(t, pub).StreamMetrics(context.Background())
+		stream := open(t, pub, "tok-a")
 		stream.Send(b)
 		_, err := stream.CloseAndRecv()
 		if status.Code(err) != codes.InvalidArgument || len(pub.keys) != 0 {
@@ -103,8 +154,25 @@ func TestInvalidBatchRejected(t *testing.T) {
 	}
 }
 
+func TestRateLimited(t *testing.T) {
+	pub := &fakePublisher{}
+	stream := open(t, pub, "tok-a")
+	for range 100 {
+		if stream.Send(batch("host-a")) != nil {
+			break // server already closed the stream
+		}
+	}
+	_, err := stream.CloseAndRecv()
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("code=%v", status.Code(err))
+	}
+	if len(pub.keys) > batchBurst+2 {
+		t.Fatalf("published %d, burst is %d", len(pub.keys), batchBurst)
+	}
+}
+
 func TestPublishFailureIsUnavailable(t *testing.T) {
-	stream, _ := start(t, &fakePublisher{err: errors.New("kafka down")}).StreamMetrics(context.Background())
+	stream := open(t, &fakePublisher{err: errors.New("kafka down")}, "tok-a")
 	stream.Send(batch("host-a"))
 	_, err := stream.CloseAndRecv()
 	if status.Code(err) != codes.Unavailable {

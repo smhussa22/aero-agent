@@ -5,6 +5,7 @@ go 1.22
 require (
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/segmentio/kafka-go v0.4.47
+	golang.org/x/time v0.5.0
 	google.golang.org/grpc v1.64.0
 	google.golang.org/protobuf v1.34.2
 )
