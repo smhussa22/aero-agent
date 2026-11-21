@@ -39,6 +39,10 @@ func main() {
 	}
 	defer pool.Close()
 
+	if err := kafka.EnsureTopic(brokers, topic); err != nil {
+		slog.Error("ensure topic failed", "err", err)
+		os.Exit(1)
+	}
 	consumer := kafka.NewConsumer(brokers, topic, "metrics-writer")
 	defer consumer.Close()
 

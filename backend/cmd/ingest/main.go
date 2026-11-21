@@ -69,6 +69,9 @@ func main() {
 		fatal("listen", err)
 	}
 
+	if err := kafka.EnsureTopic(brokers, topic); err != nil {
+		fatal("ensure topic", err)
+	}
 	pub := kafka.NewPublisher(brokers, topic)
 	defer pub.Close()
 

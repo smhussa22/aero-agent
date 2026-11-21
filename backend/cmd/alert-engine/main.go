@@ -72,6 +72,12 @@ func main() {
 		}
 	}()
 
+	for _, t := range []string{inTopic, outTopic} {
+		if err := kafka.EnsureTopic(brokers, t); err != nil {
+			slog.Error("ensure topic failed", "topic", t, "err", err)
+			os.Exit(1)
+		}
+	}
 	pub := kafka.NewPublisher(brokers, outTopic)
 	defer pub.Close()
 	consumer := kafka.NewConsumer(brokers, inTopic, "alert-engine")

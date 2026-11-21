@@ -8,6 +8,8 @@ import (
 	kafkago "github.com/segmentio/kafka-go"
 )
 
+const publishAttempts = 5
+
 type Publisher struct {
 	w *kafkago.Writer
 }
@@ -19,13 +21,23 @@ func NewPublisher(brokers []string, topic string) *Publisher {
 		Balancer:     &kafkago.Hash{}, // same host_id always lands on the same partition
 		RequiredAcks: kafkago.RequireAll,
 		BatchTimeout: 10 * time.Millisecond,
-		// shortcut: topic auto-creation is for local dev, create it explicitly in deploy
-		AllowAutoTopicCreation: true,
 	}}
 }
 
+// Publish retries briefly so a leader election or broker restart does not fail the caller.
 func (p *Publisher) Publish(ctx context.Context, key, value []byte) error {
-	return p.w.WriteMessages(ctx, kafkago.Message{Key: key, Value: value})
+	var err error
+	for attempt := 1; attempt <= publishAttempts; attempt++ {
+		if err = p.w.WriteMessages(ctx, kafkago.Message{Key: key, Value: value}); err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt) * 200 * time.Millisecond):
+		}
+	}
+	return err
 }
 
 func (p *Publisher) Close() error {
