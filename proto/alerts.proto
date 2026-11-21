@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package aero.v1;
+
+option go_package = "github.com/aero-agent/aero-agent/backend/gen/aerov1;aerov1";
+
+import "google/protobuf/timestamp.proto";
+
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  SEVERITY_INFO = 1;
+  SEVERITY_WARNING = 2;
+  SEVERITY_CRITICAL = 3;
+}
+
+// published to Kafka by the alert engine when a rule fires
+message AlertEvent {
+  string alert_id = 1;
+  string rule_id = 2;
+  string host_id = 3;
+  Severity severity = 4;
+  string metric = 5;     // e.g. "cpu.usage_percent"
+  double value = 6;      // observed value that tripped the rule
+  double threshold = 7;
+  bool resolved = 8;     // true when the condition cleared
+  google.protobuf.Timestamp fired_at = 9;
+}

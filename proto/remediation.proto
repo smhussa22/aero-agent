@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package aero.v1;
+
+option go_package = "github.com/aero-agent/aero-agent/backend/gen/aerov1;aerov1";
+
+import "google/protobuf/timestamp.proto";
+import "alerts.proto";
+
+enum PermissionMode {
+  PERMISSION_MODE_UNSPECIFIED = 0;
+  PERMISSION_MODE_OBSERVE = 1;    // investigate and report only
+  PERMISSION_MODE_RECOMMEND = 2;  // propose fixes, human approves each
+  PERMISSION_MODE_AUTONOMOUS = 3; // run allowlisted fixes within limits
+}
+
+enum ActionStatus {
+  ACTION_STATUS_UNSPECIFIED = 0;
+  ACTION_STATUS_PROPOSED = 1;
+  ACTION_STATUS_AWAITING_APPROVAL = 2;
+  ACTION_STATUS_APPROVED = 3;
+  ACTION_STATUS_REJECTED = 4;
+  ACTION_STATUS_RUNNING = 5;
+  ACTION_STATUS_SUCCEEDED = 6;
+  ACTION_STATUS_FAILED = 7;
+  ACTION_STATUS_VERIFIED = 8;  // recovery confirmed
+  ACTION_STATUS_ESCALATED = 9; // problem persisted after the action
+}
+
+// orchestrator <-> customer-side remediation agent; the agent dials out
+service RemediationService {
+  rpc Connect(stream AgentMessage) returns (stream OrchestratorMessage);
+}
+
+message AgentMessage {
+  oneof body {
+    Hello hello = 1;
+    IncidentReport report = 2;
+    ActionUpdate action_update = 3;
+  }
+}
+
+message OrchestratorMessage {
+  oneof body {
+    Investigate investigate = 1;
+    ApprovalDecision approval = 2;
+    ModeChange mode_change = 3;
+  }
+}
+
+message Hello {
+  string host_id = 1;
+  PermissionMode mode = 2;
+}
+
+message Investigate {
+  AlertEvent alert = 1;
+}
+
+message ModeChange {
+  PermissionMode mode = 1;
+}
+
+// plain-English result of an AI investigation
+message IncidentReport {
+  string incident_id = 1;
+  string alert_id = 2;
+  string summary = 3;     // likely cause
+  repeated ProposedAction proposals = 4;
+}
+
+// action_id must be on the agent's allowlist; the AI never sends a raw shell command
+message ProposedAction {
+  string action_id = 1;
+  map<string, string> params = 2;
+  string rationale = 3;
+  bool dangerous = 4; // always requires approval
+}
+
+message ActionUpdate {
+  string incident_id = 1;
+  string action_id = 2;
+  ActionStatus status = 3;
+  bool dry_run = 4;
+  string detail = 5;
+  google.protobuf.Timestamp at = 6; // also the append-only audit entry time
+}
+
+message ApprovalDecision {
+  string incident_id = 1;
+  string action_id = 2;
+  bool approved = 3;
+  string decided_by = 4;
+}

@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package aero.v1;
+
+option go_package = "github.com/aero-agent/aero-agent/backend/gen/aerov1;aerov1";
+
+import "google/protobuf/timestamp.proto";
+
+// streaming ingest endpoint the C++ agent connects to
+service IngestService {
+  rpc StreamMetrics(stream MetricBatch) returns (IngestAck);
+}
+
+message IngestAck {
+  uint64 accepted = 1; // number of batches accepted
+}
+
+// one collection tick from one host
+message MetricBatch {
+  string host_id = 1;                         // stable id of the monitored machine
+  google.protobuf.Timestamp collected_at = 2; // when the sample was taken
+  CpuMetrics cpu = 3;
+  MemoryMetrics memory = 4;
+  repeated DiskMetrics disks = 5;
+  repeated NetworkMetrics interfaces = 6;
+  repeated ProcessMetrics top_processes = 7;  // top N by cpu/mem, agent-limited
+}
+
+message CpuMetrics {
+  double usage_percent = 1; // total busy percent across all cores
+  double load_1m = 2;
+  double load_5m = 3;
+  double load_15m = 4;
+  uint32 cores = 5;
+}
+
+message MemoryMetrics {
+  uint64 total_bytes = 1;
+  uint64 used_bytes = 2;
+  uint64 swap_total_bytes = 3;
+  uint64 swap_used_bytes = 4;
+}
+
+message DiskMetrics {
+  string mount = 1;       // mount point, e.g. "/"
+  uint64 total_bytes = 2;
+  uint64 used_bytes = 3;
+  uint64 read_bytes = 4;  // cumulative
+  uint64 write_bytes = 5; // cumulative
+}
+
+message NetworkMetrics {
+  string name = 1;        // interface name
+  uint64 rx_bytes = 2;    // cumulative
+  uint64 tx_bytes = 3;    // cumulative
+  uint64 rx_errors = 4;
+  uint64 tx_errors = 5;
+}
+
+message ProcessMetrics {
+  uint32 pid = 1;
+  string name = 2;
+  double cpu_percent = 3;
+  uint64 rss_bytes = 4;
+}
