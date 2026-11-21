@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package aero.v1;
 
-option go_package = "github.com/aero-agent/aero-agent/backend/gen/aerov1;aerov1";
+option go_package = "github.com/smhussa22/aero-agent/backend/gen/aerov1;aerov1";
 
 import "google/protobuf/timestamp.proto";
 
