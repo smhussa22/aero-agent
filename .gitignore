@@ -1,0 +1,42 @@
+# plan checklist
+progress.md
+
+# C++
+build/
+cmake-build-*/
+compile_commands.json
+*.o
+*.a
+*.so
+
+# Go
+bin/
+*.exe
+*.test
+coverage.out
+
+# generated protobuf
+*.pb.go
+*.pb.cc
+*.pb.h
+
+# web
+node_modules/
+dist/
+.vite/
+
+# terraform (lock file is kept)
+.terraform/
+*.tfstate*
+*.tfvars
+
+# secrets / IDE / OS
+.env
+.env.*
+.vscode/
+.idea/
+.DS_Store
+.claude/settings.local.json
+
+# project notes
+project-desc.md
