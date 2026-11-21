@@ -32,12 +32,33 @@ int main (int argc, char** argv)
 {
 
     // usage: aero-agent [server_address] [interval_seconds]
+    // env: AERO_TOKEN (required), AERO_CA_CERT (pem path, optional), AERO_INSECURE=1 (no TLS, dev only)
     std::string address { argc > 1 ? argv[1] : "localhost:50051" };
     int interval_s { argc > 2 ? std::atoi(argv[2]) : 5 };
     if (interval_s < 1)
     {
 
         interval_s = 1;
+
+    }
+
+    const char* token_env { std::getenv("AERO_TOKEN") };
+    if (token_env == nullptr || token_env[0] == '\0')
+    {
+
+        std::println(stderr, "AERO_TOKEN is required; create one with: hostctl add <host_id>");
+
+        return 1;
+
+    }
+
+    const char* ca_env { std::getenv("AERO_CA_CERT") };
+    const char* insecure_env { std::getenv("AERO_INSECURE") };
+    bool insecure { insecure_env != nullptr && std::string { insecure_env } == "1" };
+    if (insecure)
+    {
+
+        std::println(stderr, "warning: TLS disabled, the token is sent in cleartext");
 
     }
 
@@ -54,7 +75,7 @@ int main (int argc, char** argv)
     Aero::Agent::DiskCollector disks { };
     Aero::Agent::NetworkCollector network { };
     Aero::Agent::ProcessCollector processes { };
-    Aero::Agent::MetricsClient client { address };
+    Aero::Agent::MetricsClient client { address, token_env, ca_env != nullptr ? ca_env : "", insecure };
 
     std::println("aero-agent host={} server={} interval={}s", host_id, address, interval_s);
 

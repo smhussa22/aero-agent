@@ -1,15 +1,42 @@
 #include "MetricsClient.hh"
 
+#include <fstream>
 #include <print>
+#include <sstream>
 
 namespace Aero::Agent
 {
 
-    MetricsClient::MetricsClient (const std::string& address)
+    MetricsClient::MetricsClient (const std::string& address, const std::string& token, const std::string& ca_cert_path, bool insecure) : m_token { token }
     {
 
-        // shortcut: insecure channel, add TLS before exposing the ingest port beyond a trusted network
-        m_channel = ::grpc::CreateChannel(address, ::grpc::InsecureChannelCredentials());
+        // TLS by default; plaintext only when explicitly requested
+        std::shared_ptr<::grpc::ChannelCredentials> creds { };
+        if (insecure)
+        {
+
+            creds = ::grpc::InsecureChannelCredentials();
+
+        }
+        else
+        {
+
+            ::grpc::SslCredentialsOptions options { };
+            if (!ca_cert_path.empty())
+            {
+
+                std::ifstream file { ca_cert_path };
+                std::ostringstream contents { };
+                contents << file.rdbuf();
+                options.pem_root_certs = contents.str();
+
+            }
+
+            creds = ::grpc::SslCredentials(options);
+
+        }
+
+        m_channel = ::grpc::CreateChannel(address, creds);
         m_stub = ::aero::v1::IngestService::NewStub(m_channel);
 
     }
@@ -28,6 +55,7 @@ namespace Aero::Agent
         {
 
             m_ctx = std::make_unique<::grpc::ClientContext>();
+            m_ctx->AddMetadata("authorization", "Bearer " + m_token);
             m_writer = m_stub->StreamMetrics(m_ctx.get(), &m_ack);
 
         }

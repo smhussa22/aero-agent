@@ -16,7 +16,8 @@ namespace Aero::Agent
 
     public:
 
-        explicit MetricsClient (const std::string& address);
+        // ca_cert_path empty means system root certificates; insecure disables TLS (local development only)
+        MetricsClient (const std::string& address, const std::string& token, const std::string& ca_cert_path, bool insecure);
         ~MetricsClient ();
         MetricsClient (const MetricsClient&) = delete;
         MetricsClient& operator= (const MetricsClient&) = delete;
@@ -31,6 +32,7 @@ namespace Aero::Agent
 
     private:
 
+        std::string m_token { }; // per-host bearer token sent on every stream
         std::shared_ptr<::grpc::Channel> m_channel { }; // connection to the ingest gateway
         std::unique_ptr<::aero::v1::IngestService::Stub> m_stub { }; // generated client stub
         std::unique_ptr<::grpc::ClientContext> m_ctx { }; // context of the open stream
