@@ -1,0 +1,29 @@
+# Runs the remediation agent as an unprivileged account. Install to /etc/systemd/system/.
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin aero-remediation
+#   sudo install -d -o aero-remediation -m 700 /var/lib/aero-remediation
+[Unit]
+Description=Aero Agent remediation agent
+After=network-online.target
+
+[Service]
+User=aero-remediation
+Group=aero-remediation
+# AERO_AI_KEY etc. live in this file (chmod 600, owned by root); never in the unit itself
+EnvironmentFile=/etc/aero-remediation/env
+ExecStart=/usr/local/bin/aero-remediation
+Restart=on-failure
+StateDirectory=aero-remediation
+
+# sandbox: the agent only needs the network, its state directory, and sudo for the allowlisted commands
+NoNewPrivileges=false
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+# Install with: sudo install -m 440 aero-remediation.sudoers /etc/sudoers.d/aero-remediation
+# Validate first: sudo visudo -cf aero-remediation.sudoers
+#
+# The agent account may run exactly the commands the executor builds, and nothing else.
+# Edit the service list to match AllowedServices in the agent's config; keep them identical.
+
+Defaults:aero-remediation !requiretty
+
+# one line per service you allow the agent to restart (the "--" is part of the command the executor runs)
+aero-remediation ALL=(root) NOPASSWD: /usr/bin/systemctl restart -- nginx
+aero-remediation ALL=(root) NOPASSWD: /usr/bin/systemctl restart -- postgresql
+
+aero-remediation ALL=(root) NOPASSWD: /usr/bin/journalctl --vacuum-time=[0-9]d, /usr/bin/journalctl --vacuum-time=[1-2][0-9]d, /usr/bin/journalctl --vacuum-time=30d
+
+# KNOWN LIMIT: sudoers cannot restrict which pid is signalled, so these let the agent signal any
+# process. The executor refuses protected pids and kill_process always needs a human approval, but if
+# that is too broad for you, delete these two lines and kill_process will only reach the agent's own processes.
+aero-remediation ALL=(root) NOPASSWD: /usr/bin/kill -s TERM -- [0-9]*, /usr/bin/kill -s KILL -- [0-9]*
