@@ -1,7 +1,7 @@
 # One image holds every backend service plus the built web app; compose picks the command per service.
 # Build from the repository root:  docker build -f deploy/docker/Dockerfile .
 
-FROM node:22-alpine AS web
+FROM node:26-alpine AS web
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
