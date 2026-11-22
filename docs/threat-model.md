@@ -61,11 +61,22 @@ A compromise of either is out of scope (see "Not defended").
   every batch. Restart the agent or orchestrator to cut it off.
 
 ### A stolen or guessed dashboard login
-- bcrypt passwords (12 to 72 bytes), login rate-limited per IP, identical timing for unknown emails, 12-hour
-  random session tokens stored only as hashes, signed out when the tab closes (session storage).
-- Two roles: viewers are read-only; only admins edit rules, change modes or approve actions, enforced on the server.
-- **Gaps:** no multi-factor authentication, no password reset or change flow, no account lockout beyond the
-  rate limit, no audit of failed logins. The per-IP limit is useless behind a reverse proxy (everyone shares an IP).
+- Aero stores no passwords. Sign-in goes through an OpenID Connect provider (for example WorkOS AuthKit), which owns
+  signup, email verification, password reset and multi-factor. We run the standard authorization-code flow with PKCE;
+  the one-time state is tied to the browser by a cookie and can be used once; the ID token is checked for signature,
+  issuer, audience, expiry and nonce. Tested against a fake provider that enforces the real rules (a forged nonce,
+  audience or expiry, a replayed callback, a callback from another browser, a missing PKCE proof: all refused;
+  deliberately removing each check made a test fail) and in a real browser against Dex.
+- The email must be verified by the provider. Access follows that email: an account that already exists, an
+  invitation sent to it, or (only if the operator turns on open signup) a new organization. Nobody gets in by
+  guessing a link, and an invitation cannot be used by a different email.
+- The session is a 12-hour random token in an HttpOnly, SameSite=Lax (and Secure over https) cookie, stored only as
+  a hash. Script cannot read it. Anything that changes data with a cookie must also name this app's own origin.
+- Roles: viewers are read-only; only admins edit rules, change modes, approve actions or manage the team, enforced on the server.
+  An organization cannot be left without an admin, and removing a member signs them out immediately.
+- **Gaps:** multi-factor, breached-password checks and account lockout are whatever your identity provider offers; we
+  add none. Signing out here does not sign the person out of the provider. A member's role is not re-read from the
+  provider, so removing someone from the provider does not remove them here until you remove them on the Team page.
 
 ### Script injected into the web app steals the AI key
 - The AI key lives in the browser only, in session storage unless the user ticks "remember", and goes only to the
