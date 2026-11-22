@@ -77,6 +77,22 @@ A compromise of either is out of scope (see "Not defended").
 - **Residual:** the key is readable by JavaScript in the page by design. A bug that lets an attacker run script
   from the app's own origin would expose it. Prefer a restricted, low-limit key.
 
+### One customer reaching another customer's data (hosted use)
+- Every customer is an organization. Users, hosts, rules, incidents and audit entries each carry an organization,
+  and every API route either filters by the caller's organization or first proves the host or incident belongs
+  to it. Another organization's resource answers exactly like one that does not exist (404), and changes nothing.
+- A host's identity (an id the server assigns, and its organization) comes from its token. An agent cannot name
+  itself, and cannot claim another host or organization: whatever it sends is overwritten at the gateway.
+- Alert rules only fire for hosts in their own organization; an incident takes its organization from the host's
+  record, never from the message that raised it; the orchestrator only lets an agent touch incidents on its own host.
+- Tested against a real database, in CI on every change: two fully populated organizations attack each other
+  through every route, and no response, list or audit entry may contain the other's data. Deliberately breaking
+  four of the checks made the suite fail each time, so the tests can fail.
+- **Gaps:** the scoping is written into each query by hand, so a new route that forgets it would leak; the
+  isolation test must be extended with every new route. There is no database-level backstop yet (row-level
+  security with a low-privilege role is planned). A user belongs to exactly one organization, and there are
+  no per-organization limits, so one customer can use more than its share of the shared service.
+
 ### Tampering with the record of what happened
 - Backend: the audit table is append-only (a database trigger blocks update, delete and truncate).
 - Agent: a local hash-chained log; editing, reordering or deleting lines is detected (`audit-verify`), and the
@@ -110,6 +126,5 @@ A compromise of either is out of scope (see "Not defended").
   ids are blocked, but remove those two sudoers lines if that is too much.
 - **Unencrypted traffic inside the compose network** (to Postgres and Kafka) if you split the stack across machines.
 - **Denial of service** beyond basic rate limits and size caps.
-- **Multi-tenant isolation.** One stack serves one team; every admin and viewer sees every host.
 - **Real-world scale and abuse testing.** The system has been exercised end to end on one machine; it has not
   been load-tested or reviewed by an outside party.
