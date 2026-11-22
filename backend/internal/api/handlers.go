@@ -120,8 +120,13 @@ func (s *Server) handleSetHostMode(w http.ResponseWriter, r *http.Request) {
 		if tag.RowsAffected() == 0 {
 			return pgx.ErrNoRows
 		}
-		return audit(r.Context(), tx, userFrom(r.Context()).Email, "host_mode_changed", nil,
-			map[string]any{"host": id, "mode": in.Mode})
+		if err := audit(r.Context(), tx, userFrom(r.Context()).Email, "host_mode_changed", nil,
+			map[string]any{"host": id, "mode": in.Mode}); err != nil {
+			return err
+		}
+		// delivered to the orchestrator only if the transaction commits
+		_, err = tx.Exec(r.Context(), "SELECT pg_notify('host_mode', $1)", id)
+		return err
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "no such host")
@@ -440,7 +445,11 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 		if _, err := tx.Exec(r.Context(), "UPDATE remediation_actions SET status = $1, updated_at = now() WHERE id = $2", next, id); err != nil {
 			return err
 		}
-		return audit(r.Context(), tx, actor, "action_"+next, &incident, map[string]any{"action": id})
+		if err := audit(r.Context(), tx, actor, "action_"+next, &incident, map[string]any{"action": id}); err != nil {
+			return err
+		}
+		_, err = tx.Exec(r.Context(), "SELECT pg_notify('action_decision', $1)", id)
+		return err
 	})
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
