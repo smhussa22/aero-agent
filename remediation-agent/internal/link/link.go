@@ -298,7 +298,7 @@ func (l *Link) handle(ctx context.Context, job *aerov1.Investigate) {
 	incident := job.GetIncidentId()
 
 	rep, err := l.inv.Investigate(ctx, investigate.Alert{
-		HostID: ev.GetHostId(), Metric: ev.GetMetric(), Value: ev.GetValue(),
+		HostID: l.cfg.HostID, Metric: ev.GetMetric(), Value: ev.GetValue(),
 		Threshold: ev.GetThreshold(), Severity: ev.GetSeverity().String(),
 	})
 	if err != nil {

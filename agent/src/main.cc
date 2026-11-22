@@ -84,7 +84,6 @@ int main (int argc, char** argv)
     {
 
         ::aero::v1::MetricBatch batch { };
-        batch.set_host_id(host_id);
 
         auto now { std::chrono::system_clock::now() };
         auto secs { std::chrono::time_point_cast<std::chrono::seconds>(now) };
