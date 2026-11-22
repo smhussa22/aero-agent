@@ -1,0 +1,34 @@
+#!/bin/bash
+# First-boot setup. Runs once as root. Log: /var/log/aero-bootstrap.log
+# Secrets are generated here and live only in /opt/aero/repo/deploy/docker/.env (mode 0600).
+set -euxo pipefail
+exec > >(tee /var/log/aero-bootstrap.log) 2>&1
+export DEBIAN_FRONTEND=noninteractive
+
+# the data disk becomes Docker's storage, so images, the database and Kafka all live on the encrypted volume
+for i in $(seq 1 60); do [ -e "${volume_dev}" ] && break; sleep 5; done
+[ -e "${volume_dev}" ] || { echo "data disk never appeared"; exit 1; }
+blkid "${volume_dev}" || mkfs.ext4 -L aerodata "${volume_dev}"
+mkdir -p /var/lib/docker
+grep -q aerodata /etc/fstab || echo "LABEL=aerodata /var/lib/docker ext4 defaults,nofail 0 2" >> /etc/fstab
+mount -a
+
+apt-get update
+apt-get install -y --no-install-recommends docker.io docker-compose-v2 git openssl ca-certificates unattended-upgrades
+snap install aws-cli --classic
+systemctl enable --now docker
+
+mkdir -p /opt/aero
+[ -d /opt/aero/repo ] || git clone --depth 1 --branch "${repo_ref}" "${repo_url}" /opt/aero/repo
+cd /opt/aero/repo/deploy/docker
+
+umask 077
+[ -f .env ] || printf 'POSTGRES_PASSWORD=%s\n' "$(openssl rand -hex 24)" > .env
+[ -f certs/server.crt ] || ./gen-certs.sh "${public_ip}" ${tls_names}
+
+# the certificate is public: publish it so agents can trust this server
+aws ssm put-parameter --region "${region}" --name "/${name}/server-cert" --type String \
+  --value "$(cat certs/server.crt)" --overwrite
+
+docker compose up -d --build
+echo "aero bootstrap finished"
