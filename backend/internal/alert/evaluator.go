@@ -98,6 +98,7 @@ func (e *Evaluator) Process(host string, ts time.Time, rows []store.Row) []*aero
 					AlertId: id, RuleId: r.ID, HostId: host, Severity: r.Severity,
 					Metric: r.Metric, Value: row.Value, Threshold: r.Threshold,
 					Resolved: resolved, FiredAt: timestamppb.New(ts),
+					Operator: r.Operator, Label: row.Label,
 				}
 			}
 

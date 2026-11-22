@@ -55,6 +55,7 @@ message Hello {
 
 message Investigate {
   AlertEvent alert = 1;
+  string incident_id = 2; // incident the orchestrator opened for this alert
 }
 
 message ModeChange {
@@ -75,6 +76,7 @@ message ProposedAction {
   map<string, string> params = 2;
   string rationale = 3;
   bool dangerous = 4; // always requires approval
+  string proposal_id = 5; // uuid chosen by the agent; identifies this proposal in updates and approvals
 }
 
 message ActionUpdate {
@@ -84,6 +86,7 @@ message ActionUpdate {
   bool dry_run = 4;
   string detail = 5;
   google.protobuf.Timestamp at = 6; // also the append-only audit entry time
+  string proposal_id = 7;
 }
 
 message ApprovalDecision {
@@ -91,4 +94,5 @@ message ApprovalDecision {
   string action_id = 2;
   bool approved = 3;
   string decided_by = 4;
+  string proposal_id = 5;
 }

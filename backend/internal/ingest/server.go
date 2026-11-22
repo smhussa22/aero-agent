@@ -75,7 +75,7 @@ func validate(b *aerov1.MetricBatch) error {
 
 // StreamMetrics publishes every batch on the stream and acks the count when the agent closes it.
 func (s *Server) StreamMetrics(stream aerov1.IngestService_StreamMetricsServer) error {
-	host := hostFrom(stream.Context())
+	host := HostFrom(stream.Context())
 	if host == "" {
 		return status.Error(codes.Unauthenticated, "no authenticated host")
 	}

@@ -24,4 +24,6 @@ message AlertEvent {
   double threshold = 7;
   bool resolved = 8;     // true when the condition cleared
   google.protobuf.Timestamp fired_at = 9;
+  string operator = 10; // comparison the rule uses: > >= < <=
+  string label = 11;    // mount, interface or process the value belongs to; empty for host-wide metrics
 }

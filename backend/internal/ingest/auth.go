@@ -21,8 +21,8 @@ type TokenVerifier interface {
 
 type hostKey struct{}
 
-// hostFrom returns the authenticated host of this stream, or "" if none.
-func hostFrom(ctx context.Context) string {
+// HostFrom returns the authenticated host of this stream, or "" if none.
+func HostFrom(ctx context.Context) string {
 	h, _ := ctx.Value(hostKey{}).(string)
 	return h
 }
