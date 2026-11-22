@@ -40,3 +40,7 @@ dist/
 
 # project notes
 project-desc.md
+
+# local review output
+shots/
+.playwright-mcp/
