@@ -38,7 +38,7 @@ type fakeApprover struct {
 	asked    int
 }
 
-func (f *fakeApprover) Request(context.Context, string, actions.Proposal) (bool, string, error) {
+func (f *fakeApprover) Request(context.Context, string, string, actions.Proposal) (bool, string, error) {
 	f.asked++
 	return f.approved, "alice", f.err
 }
@@ -161,7 +161,7 @@ func TestApprovalTimeoutAndMissingApprover(t *testing.T) {
 
 	h = setup(Recommend, nil)
 	h.ex = New(DefaultConfig(), Deps{Runner: h.run, Audit: h.audit})
-	h.ex.cfg.Mode = Recommend
+	h.ex.SetMode(Recommend)
 	if out := handle(t, h, restart("nginx")); out.Status != StatusBlocked || len(h.run.calls) != 0 {
 		t.Fatalf("no approver must block, not run: %+v", out)
 	}

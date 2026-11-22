@@ -73,7 +73,7 @@ type Runner interface {
 
 // Approver asks a human. It returns whether they approved and who they were.
 type Approver interface {
-	Request(ctx context.Context, incidentID string, p actions.Proposal) (approved bool, by string, err error)
+	Request(ctx context.Context, incidentID, proposalID string, p actions.Proposal) (approved bool, by string, err error)
 }
 
 // Condition is the alert condition that should clear after a successful fix.
@@ -104,6 +104,7 @@ type Verification struct {
 
 type Task struct {
 	IncidentID string
+	ProposalID string // identifies this proposal in updates and approvals
 	Proposal   actions.Proposal
 	Verify     *Verification // nil means recovery cannot be checked
 }
@@ -125,6 +126,9 @@ type Executor struct {
 	cfg  Config
 	deps Deps
 
+	modeMu sync.RWMutex // guards mode, which the orchestrator can change at runtime
+	mode   Mode
+
 	mu       sync.Mutex // one action at a time: fixes must not race each other
 	lastRun  map[string]time.Time
 	runTimes []time.Time
@@ -142,14 +146,28 @@ func New(cfg Config, deps Deps) *Executor {
 			}
 		}
 	}
-	return &Executor{cfg: cfg, deps: deps, lastRun: map[string]time.Time{}}
+	return &Executor{cfg: cfg, deps: deps, mode: cfg.Mode, lastRun: map[string]time.Time{}}
 }
 
 var errAudit = errors.New("audit log unavailable")
 
+// Mode returns the current permission mode.
+func (e *Executor) Mode() Mode {
+	e.modeMu.RLock()
+	defer e.modeMu.RUnlock()
+	return e.mode
+}
+
+// SetMode changes the permission mode for actions that start after this call.
+func (e *Executor) SetMode(m Mode) {
+	e.modeMu.Lock()
+	defer e.modeMu.Unlock()
+	e.mode = m
+}
+
 func (e *Executor) record(ctx context.Context, t Task, event, actor, detail string) error {
 	err := e.deps.Audit.Record(ctx, audit.Event{
-		Time: e.deps.Now().UTC(), IncidentID: t.IncidentID, ActionID: t.Proposal.ActionID,
+		Time: e.deps.Now().UTC(), IncidentID: t.IncidentID, ProposalID: t.ProposalID, ActionID: t.Proposal.ActionID,
 		Event: event, Actor: actor, Detail: detail, DryRun: e.cfg.DryRun,
 	})
 	if err != nil {
@@ -169,12 +187,13 @@ func (e *Executor) Handle(ctx context.Context, t Task) (Outcome, error) {
 		return Outcome{}, err
 	}
 
-	if e.cfg.Mode == Observe || (e.cfg.Mode != Recommend && e.cfg.Mode != Autonomous) {
+	mode := e.Mode()
+	if mode == Observe || (mode != Recommend && mode != Autonomous) {
 		return e.finish(ctx, t, StatusObserved, "observe mode: not executed")
 	}
 
 	// approval: Recommend always, Autonomous only for dangerous actions
-	if e.cfg.Mode == Recommend || p.Dangerous {
+	if mode == Recommend || p.Dangerous {
 		if out, done, err := e.approve(ctx, t); done || err != nil {
 			return out, err
 		}
@@ -234,7 +253,7 @@ func (e *Executor) approve(ctx context.Context, t Task) (Outcome, bool, error) {
 
 	actx, cancel := context.WithTimeout(ctx, e.cfg.ApprovalTimeout)
 	defer cancel()
-	approved, by, err := e.deps.Approver.Request(actx, t.IncidentID, t.Proposal)
+	approved, by, err := e.deps.Approver.Request(actx, t.IncidentID, t.ProposalID, t.Proposal)
 	switch {
 	case err != nil:
 		out, ferr := e.finish(ctx, t, StatusExpired, "no approval decision: "+err.Error())

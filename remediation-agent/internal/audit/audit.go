@@ -18,6 +18,7 @@ import (
 type Event struct {
 	Time       time.Time `json:"time"`
 	IncidentID string    `json:"incident_id"`
+	ProposalID string    `json:"proposal_id,omitempty"` // omitempty keeps older log lines verifiable
 	ActionID   string    `json:"action_id"`
 	Event      string    `json:"event"` // proposed, approved, running, verified, ...
 	Actor      string    `json:"actor"` // who or what caused it
@@ -89,6 +90,21 @@ func (s *FileSink) Record(_ context.Context, e Event) error {
 }
 
 func (s *FileSink) Close() error { return s.f.Close() }
+
+// Tee writes to a primary sink that must succeed and a secondary one that is best effort.
+// The local file is the primary: if it cannot be written, nothing may proceed.
+type Tee struct {
+	Primary   Sink
+	Secondary Sink
+}
+
+func (t Tee) Record(ctx context.Context, e Event) error {
+	if err := t.Primary.Record(ctx, e); err != nil {
+		return err
+	}
+	t.Secondary.Record(ctx, e) // the backend copy can be lost while offline; the local chain cannot
+	return nil
+}
 
 // verify walks the file and returns the hash of the last entry.
 func verify(path string) (string, error) {
