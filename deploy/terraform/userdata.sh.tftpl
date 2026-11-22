@@ -24,6 +24,15 @@ cd /opt/aero/repo/deploy/docker
 
 umask 077
 [ -f .env ] || printf 'POSTGRES_PASSWORD=%s\n' "$(openssl rand -hex 24)" > .env
+# sign-in settings; the client secret is read from Parameter Store with the instance's own role and goes only into .env
+sed -i '/^\(OIDC_\|PUBLIC_URL\|SIGNUP_OPEN\)/d' .env
+{
+  echo "OIDC_ISSUER=${oidc_issuer}"
+  echo "OIDC_CLIENT_ID=${oidc_client_id}"
+  echo "OIDC_CLIENT_SECRET=$(aws ssm get-parameter --region "${region}" --name "${oidc_secret_param}" --with-decryption --query Parameter.Value --output text)"
+  echo "PUBLIC_URL=${public_url}"
+  echo "SIGNUP_OPEN=${signup_open}"
+} >> .env
 [ -f certs/server.crt ] || ./gen-certs.sh "${public_ip}" ${tls_names}
 
 # the certificate is public: publish it so agents can trust this server

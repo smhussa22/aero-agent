@@ -29,6 +29,6 @@ output "certificate_command" {
 }
 
 output "first_admin" {
-  description = "After the server finishes booting (a few minutes), create the first admin from a shell on it."
-  value       = "cd /opt/aero/repo/deploy/docker && echo 'a long passphrase' | sudo docker compose run --rm -T tools userctl create you@example.com admin"
+  description = "After the server finishes booting (a few minutes), invite the first admin from a shell on it, then sign in with that email address."
+  value       = "cd /opt/aero/repo/deploy/docker && sudo docker compose run --rm tools userctl invite you@example.com admin --new-org 'Your team'"
 }

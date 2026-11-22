@@ -53,7 +53,7 @@ cd deploy/docker
 ./gen-certs.sh localhost
 cp .env.example .env            # set POSTGRES_PASSWORD
 docker compose up -d --build
-echo 'a long passphrase' | docker compose run --rm -T tools userctl create you@example.com admin
+docker compose run --rm tools userctl invite you@example.com admin --new-org "Your team"   # then sign in with that email
 ```
 
 Open <https://localhost:8080> (your browser will warn about the self-signed certificate). Then

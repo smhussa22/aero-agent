@@ -202,13 +202,18 @@ resource "aws_instance" "this" {
   # a changed repo_ref must not replace the server and its data; upgrade from a shell with git pull
   user_data_replace_on_change = false
   user_data = templatefile("${path.module}/userdata.sh.tftpl", {
-    region     = var.region
-    name       = var.name
-    repo_url   = var.repo_url
-    repo_ref   = var.repo_ref
-    public_ip  = aws_eip.this.public_ip
-    tls_names  = join(" ", var.tls_names)
-    volume_dev = "/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${replace(aws_ebs_volume.data.id, "-", "")}"
+    region            = var.region
+    name              = var.name
+    repo_url          = var.repo_url
+    repo_ref          = var.repo_ref
+    public_ip         = aws_eip.this.public_ip
+    tls_names         = join(" ", var.tls_names)
+    public_url        = var.public_url
+    oidc_issuer       = var.oidc_issuer
+    oidc_client_id    = var.oidc_client_id
+    oidc_secret_param = var.oidc_client_secret_parameter
+    signup_open       = var.signup_open ? "1" : "0"
+    volume_dev        = "/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${replace(aws_ebs_volume.data.id, "-", "")}"
   })
 
   metadata_options {

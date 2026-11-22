@@ -19,10 +19,12 @@ cp .env.example .env                                    # then set POSTGRES_PASS
 docker compose up -d --build
 ```
 
-Create the first admin and register a server (the password is read from stdin, so it never lands in shell history):
+Sign-in goes through an OpenID Connect provider, so Aero stores no passwords. Create an application at your
+provider (for example WorkOS AuthKit) with the redirect URL `<PUBLIC_URL>/auth/callback`, and put its issuer, client
+id and client secret in `.env`. Then let yourself in and register a server:
 
 ```sh
-echo 'a long passphrase' | docker compose run --rm -T tools userctl create you@example.com admin
+docker compose run --rm tools userctl invite you@example.com admin --new-org "Your team"
 docker compose run --rm -T tools hostctl add web-1     # prints that server's token once
 ```
 

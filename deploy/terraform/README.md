@@ -12,7 +12,12 @@ split the stack, and add TLS between the pieces.
 ```sh
 cd deploy/terraform
 terraform init
-terraform apply -var 'admin_cidrs=["203.0.113.7/32"]'      # your own IP, so only you can open the dashboard
+# 1. at your identity provider (for example WorkOS AuthKit) create an application whose redirect URL is
+#    <public_url>/auth/callback, then store its client secret where the server can read it, outside Terraform:
+aws ssm put-parameter --name /aero/oidc-client-secret --type SecureString --value '<client secret>'
+
+# 2. apply; admin_cidrs should be your own IP, so only you can open the dashboard
+terraform apply -var 'admin_cidrs=["203.0.113.7/32"]' -var 'public_url=https://203.0.113.7:8080'   -var 'oidc_issuer=https://<your AuthKit domain>' -var 'oidc_client_id=<client id>'
 ```
 
 `admin_cidrs` has no default and refuses `0.0.0.0/0` unless you also set `allow_open_admin = true`.

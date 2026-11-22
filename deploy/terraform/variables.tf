@@ -77,3 +77,29 @@ variable "enable_flow_logs" {
   type        = bool
   default     = true
 }
+
+variable "public_url" {
+  description = "Where browsers will reach the app, for example https://aero.example.com:8080. Register <public_url>/auth/callback with your identity provider."
+  type        = string
+}
+
+variable "oidc_issuer" {
+  description = "Issuer URL of your OpenID Connect provider (for WorkOS AuthKit, your AuthKit domain)."
+  type        = string
+}
+
+variable "oidc_client_id" {
+  type = string
+}
+
+variable "oidc_client_secret_parameter" {
+  description = "Name of an SSM SecureString parameter you created holding the client secret, for example /aero/oidc-client-secret. It must sit under /<name>/ so the server may read it. Keeping the secret there keeps it out of Terraform state."
+  type        = string
+  default     = "/aero/oidc-client-secret"
+}
+
+variable "signup_open" {
+  description = "true: anyone who signs in gets their own organization. false: only invited email addresses can sign in."
+  type        = bool
+  default     = false
+}
