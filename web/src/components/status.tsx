@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Check, X } from 'lucide-react'
-import { api, session, type Incident, type Pending } from '../lib/api'
+import { api, current, type Incident, type Pending } from '../lib/api'
 import { useLive } from '../lib/live'
 import { Badge, ErrorLine, useToast, type Tone } from './ui'
 
@@ -21,7 +21,7 @@ export function ModeBadge({ mode }: { mode: string }) {
   return <Badge tone={mode === 'autonomous' ? 'warn' : 'neutral'}>{mode[0].toUpperCase() + mode.slice(1)}</Badge>
 }
 
-export const isAdmin = () => session.get()?.user.role === 'admin'
+export const isAdmin = () => current.get()?.role === 'admin'
 
 export function paramsText(params: Record<string, unknown>): string {
   return Object.entries(params).map(([k, v]) => `${k}=${String(v)}`).join(' ')

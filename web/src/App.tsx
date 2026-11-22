@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { Bell, LayoutDashboard, LogOut, Menu, Moon, Server, SlidersHorizontal, Sparkles, Siren, Settings as Cog, Sun } from 'lucide-react'
-import { logout, session, type User } from './lib/api'
+import { Bell, LayoutDashboard, LogOut, Menu, Moon, Server, SlidersHorizontal, Sparkles, Siren, Settings as Cog, Sun, Users } from 'lucide-react'
+import { current, fetchMe, logout, type User } from './lib/api'
 import { LiveProvider, useLive } from './lib/live'
 import { timeAgo } from './lib/format'
 import { updateSettings, useSettings } from './lib/settings'
@@ -11,6 +11,7 @@ import { RulesPage } from './pages/Rules'
 import { HostsPage } from './pages/Hosts'
 import { AssistantPage } from './pages/Assistant'
 import { SettingsPage } from './pages/Settings'
+import { TeamPage } from './pages/Team'
 import { LoginPage } from './pages/Login'
 
 const useHash = () => useSyncExternalStore(
@@ -24,6 +25,7 @@ const NAV = [
   { href: '#/rules', label: 'Rules', icon: SlidersHorizontal },
   { href: '#/hosts', label: 'Hosts', icon: Server },
   { href: '#/assistant', label: 'AI assistant', icon: Sparkles },
+  { href: '#/team', label: 'Team', icon: Users },
   { href: '#/settings', label: 'Settings', icon: Cog },
 ]
 
@@ -76,6 +78,7 @@ function Shell({ user, onLogout }: { user: User; onLogout: () => void }) {
     case 'hosts': body = <HostsPage />; break
     case 'assistant': body = <AssistantPage />; break
     case 'settings': body = <SettingsPage />; break
+    case 'team': body = <TeamPage />; break
     default: body = <DashboardPage />
   }
 
@@ -90,7 +93,7 @@ function Shell({ user, onLogout }: { user: User; onLogout: () => void }) {
           </a>
         ))}
         <div className="spacer" />
-        <p className="small muted" style={{ padding: '0 var(--s-3)', overflowWrap: 'anywhere' }}>{user.email}<br />{user.role === 'admin' ? 'Admin' : 'Viewer, read-only'}</p>
+        <p className="small muted" style={{ padding: '0 var(--s-3)', overflowWrap: 'anywhere' }}>{user.email}<br />{user.org.name} · {user.role === 'admin' ? 'Admin' : 'Viewer, read-only'}</p>
         <button className="btn ghost" style={{ justifyContent: 'flex-start' }} onClick={onLogout}><LogOut size={18} aria-hidden /> Sign out</button>
       </nav>
       <div className="main">
@@ -107,16 +110,22 @@ function Shell({ user, onLogout }: { user: User; onLogout: () => void }) {
 }
 
 export function App() {
-  const [user, setUser] = useState<User | null>(() => session.get()?.user ?? null)
-  useEffect(() => { session.onExpire(() => setUser(null)) }, [])
+  const [user, setUser] = useState<User | null>(null)
+  const [checked, setChecked] = useState(false)
 
+  useEffect(() => {
+    current.onExpire(() => setUser(null))
+    fetchMe().then((u) => { current.set(u); setUser(u) }).catch(() => {}).finally(() => setChecked(true))
+  }, [])
+
+  if (!checked) return null
   return (
     <ToastProvider>
       {user ? (
         <LiveProvider>
-          <Shell user={user} onLogout={async () => { await logout().catch(() => {}); setUser(null) }} />
+          <Shell user={user} onLogout={async () => { await logout(); setUser(null) }} />
         </LiveProvider>
-      ) : <LoginPage onLogin={setUser} />}
+      ) : <LoginPage />}
     </ToastProvider>
   )
 }
