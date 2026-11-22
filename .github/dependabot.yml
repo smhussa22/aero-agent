@@ -1,0 +1,10 @@
+# Keeps dependencies, base images and CI actions current. Review and merge these promptly: this repo
+# found dozens of known-vulnerable versions after only a short time without updates.
+version: 2
+updates:
+  - { package-ecosystem: gomod, directory: /backend, schedule: { interval: weekly }, groups: { go: { patterns: ["*"] } } }
+  - { package-ecosystem: gomod, directory: /remediation-agent, schedule: { interval: weekly }, groups: { go: { patterns: ["*"] } } }
+  - { package-ecosystem: npm, directory: /web, schedule: { interval: weekly }, groups: { web: { patterns: ["*"] } } }
+  - { package-ecosystem: docker, directory: /deploy/docker, schedule: { interval: weekly } }
+  - { package-ecosystem: terraform, directory: /deploy/terraform, schedule: { interval: weekly } }
+  - { package-ecosystem: github-actions, directory: /, schedule: { interval: weekly } }
