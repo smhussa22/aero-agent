@@ -25,25 +25,25 @@ type TokenStore struct {
 	Pool *pgxpool.Pool
 }
 
-func (s TokenStore) HostForToken(ctx context.Context, token string) (string, error) {
-	var host string
-	err := s.Pool.QueryRow(ctx, "SELECT id FROM hosts WHERE token_hash = $1", hashToken(token)).Scan(&host)
+func (s TokenStore) IdentityForToken(ctx context.Context, token string) (ingest.Identity, error) {
+	var id ingest.Identity
+	err := s.Pool.QueryRow(ctx, "SELECT id, org_id::text FROM hosts WHERE token_hash = $1", hashToken(token)).Scan(&id.HostID, &id.OrgID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", ingest.ErrUnknownToken
+		return ingest.Identity{}, ingest.ErrUnknownToken
 	}
-	return host, err
+	return id, err
 }
 
-// IssueToken creates the host if needed and replaces its token. The plaintext is returned
-// once and never stored, so rotating is the only way to recover a lost token.
-func IssueToken(ctx context.Context, pool *pgxpool.Pool, hostID string) (string, error) {
+// IssueToken creates the host in the organization if needed (the server picks its id) and replaces its
+// token. The plaintext is returned once and never stored, so rotating is the only way to recover a lost token.
+func IssueToken(ctx context.Context, pool *pgxpool.Pool, orgID, name string) (hostID, token string, err error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
-		return "", err
+		return "", "", err
 	}
-	token := base64.RawURLEncoding.EncodeToString(raw)
+	token = base64.RawURLEncoding.EncodeToString(raw)
 
-	_, err := pool.Exec(ctx, `INSERT INTO hosts (id, token_hash) VALUES ($1, $2)
-		ON CONFLICT (id) DO UPDATE SET token_hash = $2`, hostID, hashToken(token))
-	return token, err
+	err = pool.QueryRow(ctx, `INSERT INTO hosts (id, org_id, name, token_hash) VALUES (gen_random_uuid()::text, $1::uuid, $2, $3)
+		ON CONFLICT (org_id, name) DO UPDATE SET token_hash = $3 RETURNING id`, orgID, name, hashToken(token)).Scan(&hostID)
+	return hostID, token, err
 }

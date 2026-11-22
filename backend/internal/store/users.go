@@ -26,14 +26,47 @@ var (
 
 type User struct {
 	ID    string `json:"id"`
+	OrgID string `json:"org_id"`
 	Email string `json:"email"`
 	Role  string `json:"role"` // admin or viewer
+}
+
+// CreateOrg makes an organization and returns its id.
+func CreateOrg(ctx context.Context, pool *pgxpool.Pool, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 80 {
+		return "", errors.New("organization name must be 1 to 80 characters")
+	}
+	var id string
+	err := pool.QueryRow(ctx, "INSERT INTO orgs (name) VALUES ($1) RETURNING id::text", name).Scan(&id)
+	return id, err
+}
+
+// SoleOrg returns the only organization, for single-team installs where naming one is just noise.
+func SoleOrg(ctx context.Context, pool *pgxpool.Pool) (string, error) {
+	rows, err := pool.Query(ctx, "SELECT id::text FROM orgs LIMIT 2")
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return "", err
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) != 1 {
+		return "", errors.New("there is not exactly one organization: pass --org <id>, or create one with --new-org")
+	}
+	return ids[0], rows.Err()
 }
 
 // dummyHash makes Authenticate take the same time for unknown emails as for wrong passwords
 var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("dummy-password"), bcrypt.DefaultCost)
 
-func CreateUser(ctx context.Context, pool *pgxpool.Pool, email, password, role string) error {
+func CreateUser(ctx context.Context, pool *pgxpool.Pool, orgID, email, password, role string) error {
 	if len(password) < minPasswordLen || len(password) > maxPasswordLen {
 		return errors.New("password must be 12 to 72 bytes")
 	}
@@ -41,16 +74,16 @@ func CreateUser(ctx context.Context, pool *pgxpool.Pool, email, password, role s
 	if err != nil {
 		return err
 	}
-	_, err = pool.Exec(ctx, "INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3)",
-		strings.ToLower(strings.TrimSpace(email)), string(hash), role)
+	_, err = pool.Exec(ctx, "INSERT INTO users (org_id, email, password_hash, role) VALUES ($1::uuid, $2, $3, $4)",
+		orgID, strings.ToLower(strings.TrimSpace(email)), string(hash), role)
 	return err
 }
 
 func Authenticate(ctx context.Context, pool *pgxpool.Pool, email, password string) (User, error) {
 	var u User
 	var hash string
-	err := pool.QueryRow(ctx, "SELECT id::text, email, role, password_hash FROM users WHERE email = $1",
-		strings.ToLower(strings.TrimSpace(email))).Scan(&u.ID, &u.Email, &u.Role, &hash)
+	err := pool.QueryRow(ctx, "SELECT id::text, org_id::text, email, role, password_hash FROM users WHERE email = $1",
+		strings.ToLower(strings.TrimSpace(email))).Scan(&u.ID, &u.OrgID, &u.Email, &u.Role, &hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
 		return User{}, ErrInvalidCredentials
@@ -86,9 +119,9 @@ type SessionStore struct {
 
 func (s SessionStore) UserForSession(ctx context.Context, token string) (User, error) {
 	var u User
-	err := s.Pool.QueryRow(ctx, `SELECT u.id::text, u.email, u.role FROM sessions s
+	err := s.Pool.QueryRow(ctx, `SELECT u.id::text, u.org_id::text, u.email, u.role FROM sessions s
 		JOIN users u ON u.id = s.user_id WHERE s.token_hash = $1 AND s.expires_at > now()`,
-		hashToken(token)).Scan(&u.ID, &u.Email, &u.Role)
+		hashToken(token)).Scan(&u.ID, &u.OrgID, &u.Email, &u.Role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNoSession
 	}

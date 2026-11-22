@@ -12,6 +12,9 @@ import (
 // handleLatest returns the newest value of every metric a host reported recently. The web app
 // uses it to offer only metrics that exist and to fill stat tiles without pulling history.
 func (s *Server) handleLatest(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHost(w, r, r.PathValue("id")) {
+		return
+	}
 	rows, err := s.pool.Query(r.Context(), `SELECT DISTINCT ON (metric, label) metric, label, value, time
 		FROM metrics WHERE host_id = $1 AND time > now() - interval '15 minutes'
 		ORDER BY metric, label, time DESC`, r.PathValue("id"))
@@ -41,10 +44,10 @@ func (s *Server) handleLatest(w http.ResponseWriter, r *http.Request) {
 
 // handlePending lists actions waiting for a human, newest first, with enough context to decide.
 func (s *Server) handlePending(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.pool.Query(r.Context(), `SELECT a.id::text, a.incident_id::text, i.host_id, a.action_id, a.params,
+	rows, err := s.pool.Query(r.Context(), `SELECT a.id::text, a.incident_id::text, i.host_id, h.name, a.action_id, a.params,
 			COALESCE(a.rationale, ''), a.dangerous, COALESCE(i.summary, ''), a.created_at
-		FROM remediation_actions a JOIN incidents i ON i.id = a.incident_id
-		WHERE a.status = 'awaiting_approval' ORDER BY a.created_at DESC LIMIT 100`)
+		FROM remediation_actions a JOIN incidents i ON i.id = a.incident_id JOIN hosts h ON h.id = i.host_id
+		WHERE a.status = 'awaiting_approval' AND i.org_id = $1::uuid ORDER BY a.created_at DESC LIMIT 100`, userFrom(r.Context()).OrgID)
 	if err != nil {
 		fail(w, err)
 		return
@@ -55,6 +58,7 @@ func (s *Server) handlePending(w http.ResponseWriter, r *http.Request) {
 		ID         string         `json:"id"`
 		IncidentID string         `json:"incident_id"`
 		HostID     string         `json:"host_id"`
+		HostName   string         `json:"host_name"`
 		ActionID   string         `json:"action_id"`
 		Params     map[string]any `json:"params"`
 		Rationale  string         `json:"rationale"`
@@ -65,7 +69,7 @@ func (s *Server) handlePending(w http.ResponseWriter, r *http.Request) {
 	out := []pending{}
 	for rows.Next() {
 		var p pending
-		if err := rows.Scan(&p.ID, &p.IncidentID, &p.HostID, &p.ActionID, &p.Params, &p.Rationale, &p.Dangerous, &p.Summary, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.IncidentID, &p.HostID, &p.HostName, &p.ActionID, &p.Params, &p.Rationale, &p.Dangerous, &p.Summary, &p.CreatedAt); err != nil {
 			fail(w, err)
 			return
 		}
@@ -86,7 +90,7 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 	rows, err := s.pool.Query(r.Context(), `SELECT id, at, actor, event, COALESCE(incident_id::text, ''), details
-		FROM audit_log ORDER BY id DESC LIMIT $1`, limit)
+		FROM audit_log WHERE org_id = $2::uuid ORDER BY id DESC LIMIT $1`, limit, userFrom(r.Context()).OrgID)
 	if err != nil {
 		fail(w, err)
 		return

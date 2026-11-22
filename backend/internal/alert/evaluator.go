@@ -15,6 +15,7 @@ import (
 // Rule mirrors a row of alert_rules.
 type Rule struct {
 	ID        string
+	OrgID     string // the organization that owns the rule: it never fires for another one's hosts
 	HostID    string // empty applies to every host
 	Metric    string
 	Label     string // empty matches any label
@@ -79,11 +80,11 @@ func newID() string {
 }
 
 // Process evaluates one host's rows sampled at ts and returns the events that result.
-func (e *Evaluator) Process(host string, ts time.Time, rows []store.Row) []*aerov1.AlertEvent {
+func (e *Evaluator) Process(org, host string, ts time.Time, rows []store.Row) []*aerov1.AlertEvent {
 	var events []*aerov1.AlertEvent
 
 	for _, r := range e.rules {
-		if r.HostID != "" && r.HostID != host {
+		if r.OrgID == "" || r.OrgID != org || (r.HostID != "" && r.HostID != host) {
 			continue
 		}
 		for _, row := range rows {
@@ -98,7 +99,7 @@ func (e *Evaluator) Process(host string, ts time.Time, rows []store.Row) []*aero
 					AlertId: id, RuleId: r.ID, HostId: host, Severity: r.Severity,
 					Metric: r.Metric, Value: row.Value, Threshold: r.Threshold,
 					Resolved: resolved, FiredAt: timestamppb.New(ts),
-					Operator: r.Operator, Label: row.Label,
+					Operator: r.Operator, Label: row.Label, OrgId: r.OrgID,
 				}
 			}
 

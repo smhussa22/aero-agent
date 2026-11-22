@@ -92,7 +92,7 @@ func main() {
 		}
 
 		mu.Lock()
-		events := eval.Process(batch.GetHostId(), batch.GetCollectedAt().AsTime(), store.Flatten(&batch))
+		events := eval.Process(batch.GetOrgId(), batch.GetHostId(), batch.GetCollectedAt().AsTime(), store.Flatten(&batch))
 		mu.Unlock()
 
 		// a failed publish returns the error so the batch is redelivered; evaluator state has

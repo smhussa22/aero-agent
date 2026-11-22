@@ -80,8 +80,8 @@ func InsertBatch(ctx context.Context, pool *pgxpool.Pool, b *aerov1.MetricBatch)
 	}
 	defer tx.Rollback(ctx)
 
-	if _, err := tx.Exec(ctx, `INSERT INTO hosts (id, last_seen) VALUES ($1, now())
-		ON CONFLICT (id) DO UPDATE SET last_seen = now()`, b.GetHostId()); err != nil {
+	// only an enrolled host can report: this never creates one, so an unknown id is simply dropped
+	if _, err := tx.Exec(ctx, "UPDATE hosts SET last_seen = now() WHERE id = $1", b.GetHostId()); err != nil {
 		return err
 	}
 	if _, err := tx.CopyFrom(ctx, pgx.Identifier{"metrics"},

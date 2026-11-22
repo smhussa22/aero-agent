@@ -90,8 +90,9 @@ func (s *Service) Connect(stream aerov1.RemediationService_ConnectServer) error 
 	if err != nil {
 		return err
 	}
-	if hello := first.GetHello(); hello == nil || hello.GetHostId() != host {
-		return status.Error(codes.PermissionDenied, "first message must be hello for the authenticated host")
+	// who this is comes from the token; the host name inside Hello is only informational and never trusted
+	if first.GetHello() == nil {
+		return status.Error(codes.InvalidArgument, "first message must be hello")
 	}
 
 	out := make(chan *aerov1.OrchestratorMessage, queueSize)
@@ -165,7 +166,8 @@ func (s *Service) inTx(ctx context.Context, fn func(pgx.Tx) error) error {
 }
 
 func auditTx(ctx context.Context, tx pgx.Tx, actor, event, incident string, details map[string]any) error {
-	_, err := tx.Exec(ctx, "INSERT INTO audit_log (actor, event, incident_id, details) VALUES ($1, $2, $3::uuid, $4)",
+	_, err := tx.Exec(ctx, `INSERT INTO audit_log (org_id, actor, event, incident_id, details)
+		VALUES ((SELECT org_id FROM incidents WHERE id = $3::uuid), $1, $2, $3::uuid, $4)`,
 		actor, event, incident, details)
 	return err
 }

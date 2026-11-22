@@ -26,10 +26,31 @@ func fail(w http.ResponseWriter, err error) {
 }
 
 // audit records who did what; call it inside the same transaction as the change.
-func audit(ctx context.Context, tx pgx.Tx, actor, event string, incidentID *string, details map[string]any) error {
-	_, err := tx.Exec(ctx, "INSERT INTO audit_log (actor, event, incident_id, details) VALUES ($1, $2, $3::uuid, $4)",
-		actor, event, incidentID, details)
+func audit(ctx context.Context, tx pgx.Tx, orgID, actor, event string, incidentID *string, details map[string]any) error {
+	_, err := tx.Exec(ctx, "INSERT INTO audit_log (org_id, actor, event, incident_id, details) VALUES ($1::uuid, $2, $3, $4::uuid, $5)",
+		orgID, actor, event, incidentID, details)
 	return err
+}
+
+// hostInOrg is the gate for every route that names a host: a host in another organization looks exactly
+// like a host that does not exist.
+func (s *Server) hostInOrg(ctx context.Context, hostID, orgID string) (bool, error) {
+	var ok bool
+	err := s.pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM hosts WHERE id = $1 AND org_id = $2::uuid)", hostID, orgID).Scan(&ok)
+	return ok, err
+}
+
+// requireHost writes the 404 and returns false when the host is not in the caller's organization.
+func (s *Server) requireHost(w http.ResponseWriter, r *http.Request, hostID string) bool {
+	ok, err := s.hostInOrg(r.Context(), hostID, userFrom(r.Context()).OrgID)
+	if err != nil {
+		fail(w, err)
+		return false
+	}
+	if !ok {
+		writeErr(w, http.StatusNotFound, "no such host")
+	}
+	return ok
 }
 
 // ---- auth ----
@@ -75,7 +96,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 // ---- hosts and metrics ----
 
 func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.pool.Query(r.Context(), "SELECT id, mode, last_seen FROM hosts ORDER BY id")
+	rows, err := s.pool.Query(r.Context(), "SELECT id, name, mode, last_seen FROM hosts WHERE org_id = $1::uuid ORDER BY name", userFrom(r.Context()).OrgID)
 	if err != nil {
 		fail(w, err)
 		return
@@ -84,13 +105,14 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 
 	type host struct {
 		ID       string     `json:"id"`
+		Name     string     `json:"name"`
 		Mode     string     `json:"mode"`
 		LastSeen *time.Time `json:"last_seen"`
 	}
 	out := []host{}
 	for rows.Next() {
 		var h host
-		if err := rows.Scan(&h.ID, &h.Mode, &h.LastSeen); err != nil {
+		if err := rows.Scan(&h.ID, &h.Name, &h.Mode, &h.LastSeen); err != nil {
 			fail(w, err)
 			return
 		}
@@ -113,14 +135,14 @@ func (s *Server) handleSetHostMode(w http.ResponseWriter, r *http.Request) {
 
 	id := r.PathValue("id")
 	err := s.inTx(r.Context(), func(tx pgx.Tx) error {
-		tag, err := tx.Exec(r.Context(), "UPDATE hosts SET mode = $1 WHERE id = $2", in.Mode, id)
+		tag, err := tx.Exec(r.Context(), "UPDATE hosts SET mode = $1 WHERE id = $2 AND org_id = $3::uuid", in.Mode, id, userFrom(r.Context()).OrgID)
 		if err != nil {
 			return err
 		}
 		if tag.RowsAffected() == 0 {
 			return pgx.ErrNoRows
 		}
-		if err := audit(r.Context(), tx, userFrom(r.Context()).Email, "host_mode_changed", nil,
+		if err := audit(r.Context(), tx, userFrom(r.Context()).OrgID, userFrom(r.Context()).Email, "host_mode_changed", nil,
 			map[string]any{"host": id, "mode": in.Mode}); err != nil {
 			return err
 		}
@@ -142,6 +164,9 @@ func (s *Server) handleSetHostMode(w http.ResponseWriter, r *http.Request) {
 const maxMetricPoints = 5000
 
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHost(w, r, r.PathValue("id")) {
+		return
+	}
 	q := r.URL.Query()
 	metric := q.Get("metric")
 	if metric == "" || len(metric) > 100 {
@@ -251,7 +276,7 @@ func scanRule(row pgx.Row) (rule, error) {
 }
 
 func (s *Server) handleListRules(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.pool.Query(r.Context(), "SELECT "+ruleCols+" FROM alert_rules ORDER BY created_at")
+	rows, err := s.pool.Query(r.Context(), "SELECT "+ruleCols+" FROM alert_rules WHERE org_id = $1::uuid ORDER BY created_at", userFrom(r.Context()).OrgID)
 	if err != nil {
 		fail(w, err)
 		return
@@ -279,15 +304,27 @@ func (s *Server) saveRule(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
+	org := userFrom(r.Context()).OrgID
+	// a rule may only point at one of this organization's own hosts
+	if in.HostID != nil {
+		if ok, err := s.hostInOrg(r.Context(), *in.HostID, org); err != nil {
+			fail(w, err)
+			return
+		} else if !ok {
+			writeErr(w, http.StatusBadRequest, "unknown host")
+			return
+		}
+	}
+
 	var row pgx.Row
 	if id == "" {
-		row = s.pool.QueryRow(r.Context(), `INSERT INTO alert_rules (host_id, name, metric, label, operator, threshold, duration_seconds, severity, enabled)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING `+ruleCols,
-			in.HostID, in.Name, in.Metric, in.Label, in.Operator, in.Threshold, in.DurationSeconds, in.Severity, in.Enabled)
+		row = s.pool.QueryRow(r.Context(), `INSERT INTO alert_rules (org_id, host_id, name, metric, label, operator, threshold, duration_seconds, severity, enabled)
+			VALUES ($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING `+ruleCols,
+			org, in.HostID, in.Name, in.Metric, in.Label, in.Operator, in.Threshold, in.DurationSeconds, in.Severity, in.Enabled)
 	} else {
 		row = s.pool.QueryRow(r.Context(), `UPDATE alert_rules SET host_id=$1, name=$2, metric=$3, label=$4, operator=$5,
-			threshold=$6, duration_seconds=$7, severity=$8, enabled=$9 WHERE id=$10 RETURNING `+ruleCols,
-			in.HostID, in.Name, in.Metric, in.Label, in.Operator, in.Threshold, in.DurationSeconds, in.Severity, in.Enabled, id)
+			threshold=$6, duration_seconds=$7, severity=$8, enabled=$9 WHERE id=$10 AND org_id=$11::uuid RETURNING `+ruleCols,
+			in.HostID, in.Name, in.Metric, in.Label, in.Operator, in.Threshold, in.DurationSeconds, in.Severity, in.Enabled, id, org)
 	}
 	saved, err := scanRule(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -311,7 +348,7 @@ func (s *Server) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
-	tag, err := s.pool.Exec(r.Context(), "DELETE FROM alert_rules WHERE id = $1", r.PathValue("id"))
+	tag, err := s.pool.Exec(r.Context(), "DELETE FROM alert_rules WHERE id = $1 AND org_id = $2::uuid", r.PathValue("id"), userFrom(r.Context()).OrgID)
 	if err != nil {
 		fail(w, err)
 		return
@@ -341,8 +378,9 @@ func (s *Server) handleListIncidents(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 
-	rows, err := s.pool.Query(r.Context(), `SELECT id::text, host_id, alert_id, status, COALESCE(summary, ''), opened_at, resolved_at
-		FROM incidents WHERE ($1 = '' OR status = $1) ORDER BY opened_at DESC LIMIT $2`, status, limit)
+	rows, err := s.pool.Query(r.Context(), `SELECT i.id::text, i.host_id, h.name, i.alert_id, i.status, COALESCE(i.summary, ''), i.opened_at, i.resolved_at
+		FROM incidents i JOIN hosts h ON h.id = i.host_id
+		WHERE i.org_id = $1::uuid AND ($2 = '' OR i.status = $2) ORDER BY i.opened_at DESC LIMIT $3`, userFrom(r.Context()).OrgID, status, limit)
 	if err != nil {
 		fail(w, err)
 		return
@@ -352,6 +390,7 @@ func (s *Server) handleListIncidents(w http.ResponseWriter, r *http.Request) {
 	type incident struct {
 		ID         string     `json:"id"`
 		HostID     string     `json:"host_id"`
+		HostName   string     `json:"host_name"`
 		AlertID    string     `json:"alert_id"`
 		Status     string     `json:"status"`
 		Summary    string     `json:"summary"`
@@ -361,7 +400,7 @@ func (s *Server) handleListIncidents(w http.ResponseWriter, r *http.Request) {
 	out := []incident{}
 	for rows.Next() {
 		var i incident
-		if err := rows.Scan(&i.ID, &i.HostID, &i.AlertID, &i.Status, &i.Summary, &i.OpenedAt, &i.ResolvedAt); err != nil {
+		if err := rows.Scan(&i.ID, &i.HostID, &i.HostName, &i.AlertID, &i.Status, &i.Summary, &i.OpenedAt, &i.ResolvedAt); err != nil {
 			fail(w, err)
 			return
 		}
@@ -375,14 +414,16 @@ func (s *Server) handleGetIncident(w http.ResponseWriter, r *http.Request) {
 	var inc struct {
 		ID       string    `json:"id"`
 		HostID   string    `json:"host_id"`
+		HostName string    `json:"host_name"`
 		AlertID  string    `json:"alert_id"`
 		Status   string    `json:"status"`
 		Summary  string    `json:"summary"`
 		OpenedAt time.Time `json:"opened_at"`
 		Actions  []action  `json:"actions"`
 	}
-	err := s.pool.QueryRow(r.Context(), `SELECT id::text, host_id, alert_id, status, COALESCE(summary, ''), opened_at
-		FROM incidents WHERE id = $1`, id).Scan(&inc.ID, &inc.HostID, &inc.AlertID, &inc.Status, &inc.Summary, &inc.OpenedAt)
+	err := s.pool.QueryRow(r.Context(), `SELECT i.id::text, i.host_id, h.name, i.alert_id, i.status, COALESCE(i.summary, ''), i.opened_at
+		FROM incidents i JOIN hosts h ON h.id = i.host_id WHERE i.id = $1 AND i.org_id = $2::uuid`, id, userFrom(r.Context()).OrgID).
+		Scan(&inc.ID, &inc.HostID, &inc.HostName, &inc.AlertID, &inc.Status, &inc.Summary, &inc.OpenedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "no such incident")
 		return
@@ -433,12 +474,15 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.PathValue("id")
 	actor := userFrom(r.Context()).Email
+	org := userFrom(r.Context()).OrgID
 
 	errNotPending := errors.New("not awaiting approval")
 	err := s.inTx(r.Context(), func(tx pgx.Tx) error {
 		var status string
 		var incident string
-		err := tx.QueryRow(r.Context(), "SELECT status, incident_id::text FROM remediation_actions WHERE id = $1 FOR UPDATE", id).Scan(&status, &incident)
+		// the join to the organization's incident is what keeps another organization's action unreachable
+		err := tx.QueryRow(r.Context(), `SELECT a.status, a.incident_id::text FROM remediation_actions a
+			JOIN incidents i ON i.id = a.incident_id WHERE a.id = $1 AND i.org_id = $2::uuid FOR UPDATE OF a`, id, org).Scan(&status, &incident)
 		if err != nil {
 			return err
 		}
@@ -456,7 +500,7 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 		if _, err := tx.Exec(r.Context(), "UPDATE remediation_actions SET status = $1, updated_at = now() WHERE id = $2", next, id); err != nil {
 			return err
 		}
-		if err := audit(r.Context(), tx, actor, "action_"+next, &incident, map[string]any{"action": id}); err != nil {
+		if err := audit(r.Context(), tx, org, actor, "action_"+next, &incident, map[string]any{"action": id}); err != nil {
 			return err
 		}
 		_, err = tx.Exec(r.Context(), "SELECT pg_notify('action_decision', $1)", id)

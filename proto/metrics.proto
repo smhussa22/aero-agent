@@ -24,6 +24,7 @@ message MetricBatch {
   repeated DiskMetrics disks = 5;
   repeated NetworkMetrics interfaces = 6;
   repeated ProcessMetrics top_processes = 7;  // top N by cpu/mem, agent-limited
+  string org_id = 8; // set by the gateway from the agent's token; whatever an agent sends here is overwritten
 }
 
 message CpuMetrics {

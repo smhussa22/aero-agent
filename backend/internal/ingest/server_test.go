@@ -37,19 +37,19 @@ func (f *fakePublisher) Publish(_ context.Context, key, value []byte) error {
 	return nil
 }
 
-// fakeTokens knows two hosts; anything else is unknown
+// fakeTokens knows two hosts in two organizations; anything else is unknown
 type fakeTokens struct{}
 
-func (fakeTokens) HostForToken(_ context.Context, token string) (string, error) {
+func (fakeTokens) IdentityForToken(_ context.Context, token string) (Identity, error) {
 	switch token {
 	case "tok-a":
-		return "host-a", nil
+		return Identity{HostID: "host-a", OrgID: "org-a"}, nil
 	case "tok-b":
-		return "host-b", nil
+		return Identity{HostID: "host-b", OrgID: "org-b"}, nil
 	case "broken":
-		return "", errors.New("db down")
+		return Identity{}, errors.New("db down")
 	}
-	return "", ErrUnknownToken
+	return Identity{}, ErrUnknownToken
 }
 
 // open starts an in-memory server behind the auth interceptor and opens a stream using token
@@ -108,6 +108,9 @@ func TestStreamPublishesAndAcks(t *testing.T) {
 	if err := proto.Unmarshal(pub.vals[0], &got); err != nil || got.Cpu.UsagePercent != 42 {
 		t.Fatalf("published payload wrong: %v %v", err, &got)
 	}
+	if got.HostId != "host-a" || got.OrgId != "org-a" {
+		t.Fatalf("the gateway must stamp identity from the token, got host=%q org=%q", got.HostId, got.OrgId)
+	}
 }
 
 func TestAuthRejected(t *testing.T) {
@@ -129,20 +132,32 @@ func TestAuthRejected(t *testing.T) {
 	}
 }
 
-func TestTokenCannotSpeakForAnotherHost(t *testing.T) {
+// An agent can write anything it likes in host_id and org_id. The gateway ignores it: the token decides.
+func TestAgentCannotClaimAnotherHostOrOrganization(t *testing.T) {
 	pub := &fakePublisher{}
 	stream := open(t, pub, "tok-a")
-	stream.Send(batch("host-b"))
-	_, err := stream.CloseAndRecv()
-	if status.Code(err) != codes.PermissionDenied || len(pub.keys) != 0 {
-		t.Fatalf("code=%v published=%d", status.Code(err), len(pub.keys))
+	lie := batch("host-b")
+	lie.OrgId = "org-b"
+	if err := stream.Send(lie); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.CloseAndRecv(); err != nil {
+		t.Fatal(err)
+	}
+	if len(pub.keys) != 1 || pub.keys[0] != "host-a" {
+		t.Fatalf("message must be keyed by the real host, got %v", pub.keys)
+	}
+	var got aerov1.MetricBatch
+	proto.Unmarshal(pub.vals[0], &got)
+	if got.HostId != "host-a" || got.OrgId != "org-a" {
+		t.Fatalf("claimed identity survived: host=%q org=%q", got.HostId, got.OrgId)
 	}
 }
 
 func TestInvalidBatchRejected(t *testing.T) {
 	for name, b := range map[string]*aerov1.MetricBatch{
-		"no host":      {CollectedAt: timestamppb.Now()},
-		"no timestamp": {HostId: "host-a"},
+		"no timestamp":       {HostId: "host-a"},
+		"too many processes": {CollectedAt: timestamppb.Now(), TopProcesses: make([]*aerov1.ProcessMetrics, maxTopProcesses+1)},
 	} {
 		pub := &fakePublisher{}
 		stream := open(t, pub, "tok-a")

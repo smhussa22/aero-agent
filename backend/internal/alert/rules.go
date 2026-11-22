@@ -17,7 +17,7 @@ var severities = map[string]aerov1.Severity{
 
 // LoadRules returns every enabled alert rule.
 func LoadRules(ctx context.Context, pool *pgxpool.Pool) ([]Rule, error) {
-	rows, err := pool.Query(ctx, `SELECT id::text, COALESCE(host_id, ''), metric, label, operator,
+	rows, err := pool.Query(ctx, `SELECT id::text, org_id::text, COALESCE(host_id, ''), metric, label, operator,
 		threshold, duration_seconds, severity FROM alert_rules WHERE enabled`)
 	if err != nil {
 		return nil, err
@@ -29,7 +29,7 @@ func LoadRules(ctx context.Context, pool *pgxpool.Pool) ([]Rule, error) {
 		var r Rule
 		var secs int
 		var sev string
-		if err := rows.Scan(&r.ID, &r.HostID, &r.Metric, &r.Label, &r.Operator, &r.Threshold, &secs, &sev); err != nil {
+		if err := rows.Scan(&r.ID, &r.OrgID, &r.HostID, &r.Metric, &r.Label, &r.Operator, &r.Threshold, &secs, &sev); err != nil {
 			return nil, err
 		}
 		r.Duration = time.Duration(secs) * time.Second

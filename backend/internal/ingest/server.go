@@ -19,7 +19,6 @@ import (
 
 // limits applied at the trust boundary: agents run on user machines
 const (
-	maxHostIDLen    = 253
 	maxListItems    = 256
 	maxTopProcesses = 100
 
@@ -59,10 +58,6 @@ func (s *Server) limiter(host string) *rate.Limiter {
 
 func validate(b *aerov1.MetricBatch) error {
 	switch {
-	case b.GetHostId() == "":
-		return errors.New("host_id is required")
-	case len(b.GetHostId()) > maxHostIDLen:
-		return fmt.Errorf("host_id longer than %d bytes", maxHostIDLen)
 	case b.GetCollectedAt() == nil:
 		return errors.New("collected_at is required")
 	case len(b.GetDisks()) > maxListItems || len(b.GetInterfaces()) > maxListItems:
@@ -75,10 +70,11 @@ func validate(b *aerov1.MetricBatch) error {
 
 // StreamMetrics publishes every batch on the stream and acks the count when the agent closes it.
 func (s *Server) StreamMetrics(stream aerov1.IngestService_StreamMetricsServer) error {
-	host := HostFrom(stream.Context())
-	if host == "" {
+	id := IdentityFrom(stream.Context())
+	if id.HostID == "" || id.OrgID == "" {
 		return status.Error(codes.Unauthenticated, "no authenticated host")
 	}
+	host := id.HostID
 	limiter := s.limiter(host)
 
 	var accepted uint64
@@ -94,12 +90,10 @@ func (s *Server) StreamMetrics(stream aerov1.IngestService_StreamMetricsServer) 
 		if !limiter.Allow() {
 			return status.Error(codes.ResourceExhausted, "rate limit exceeded")
 		}
+		// who sent this is decided by the token, never by the batch: whatever the agent wrote is overwritten
+		batch.HostId, batch.OrgId = id.HostID, id.OrgID
 		if err := validate(batch); err != nil {
 			return status.Error(codes.InvalidArgument, err.Error())
-		}
-		// a token only speaks for its own host
-		if batch.GetHostId() != host {
-			return status.Error(codes.PermissionDenied, "host_id does not match token")
 		}
 
 		value, err := proto.Marshal(batch)

@@ -46,13 +46,13 @@ func (s *Service) openIncident(ctx context.Context, ev *aerov1.AlertEvent) (id s
 	}
 
 	err = s.inTx(ctx, func(tx pgxTx) error {
-		// the host row normally exists already (it holds the token); this keeps the FK satisfied regardless
-		if _, err := tx.Exec(ctx, "INSERT INTO hosts (id) VALUES ($1) ON CONFLICT DO NOTHING", ev.GetHostId()); err != nil {
-			return err
-		}
-		// rule_id becomes NULL if the rule was deleted since the alert fired
-		rows, err := tx.Query(ctx, `INSERT INTO incidents (host_id, rule_id, alert_id)
-			VALUES ($1, (SELECT id FROM alert_rules WHERE id = NULLIF($2, '')::uuid), $3)
+		// the organization comes from the host's own record. The rule is linked only if it belongs to that same
+		// organization (and becomes NULL if it was deleted since the alert fired). A host that no longer exists
+		// inserts nothing, so the alert is dropped.
+		rows, err := tx.Query(ctx, `INSERT INTO incidents (host_id, org_id, rule_id, alert_id)
+			SELECT h.id, h.org_id,
+			       (SELECT r.id FROM alert_rules r WHERE r.id = NULLIF($2, '')::uuid AND r.org_id = h.org_id), $3
+			FROM hosts h WHERE h.id = $1
 			ON CONFLICT (alert_id) DO NOTHING RETURNING id::text`, ev.GetHostId(), rule, ev.GetAlertId())
 		if err != nil {
 			return err

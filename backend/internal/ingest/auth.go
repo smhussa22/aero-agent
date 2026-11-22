@@ -14,18 +14,27 @@ import (
 // ErrUnknownToken means no host owns the presented token.
 var ErrUnknownToken = errors.New("unknown token")
 
-// TokenVerifier maps a bearer token to the one host it belongs to.
-type TokenVerifier interface {
-	HostForToken(ctx context.Context, token string) (string, error)
+// Identity is who a token belongs to. It comes from the server's own records, never from the client.
+type Identity struct {
+	HostID string
+	OrgID  string
 }
 
-type hostKey struct{}
+// TokenVerifier maps a bearer token to the one host (and organization) it belongs to.
+type TokenVerifier interface {
+	IdentityForToken(ctx context.Context, token string) (Identity, error)
+}
+
+type identityKey struct{}
+
+// IdentityFrom returns the authenticated identity of this stream; the zero value means none.
+func IdentityFrom(ctx context.Context) Identity {
+	id, _ := ctx.Value(identityKey{}).(Identity)
+	return id
+}
 
 // HostFrom returns the authenticated host of this stream, or "" if none.
-func HostFrom(ctx context.Context) string {
-	h, _ := ctx.Value(hostKey{}).(string)
-	return h
-}
+func HostFrom(ctx context.Context) string { return IdentityFrom(ctx).HostID }
 
 type authedStream struct {
 	grpc.ServerStream
@@ -47,7 +56,7 @@ func AuthInterceptor(v TokenVerifier) grpc.StreamServerInterceptor {
 			return status.Error(codes.Unauthenticated, "missing token")
 		}
 
-		host, err := v.HostForToken(ss.Context(), token)
+		id, err := v.IdentityForToken(ss.Context(), token)
 		switch {
 		case errors.Is(err, ErrUnknownToken):
 			return status.Error(codes.Unauthenticated, "invalid token")
@@ -55,6 +64,6 @@ func AuthInterceptor(v TokenVerifier) grpc.StreamServerInterceptor {
 			return status.Error(codes.Unavailable, "auth backend unavailable")
 		}
 
-		return handler(srv, &authedStream{ServerStream: ss, ctx: context.WithValue(ss.Context(), hostKey{}, host)})
+		return handler(srv, &authedStream{ServerStream: ss, ctx: context.WithValue(ss.Context(), identityKey{}, id)})
 	}
 }
