@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5"
 	"google.golang.org/protobuf/proto"
 
 	aerov1 "github.com/smhussa22/aero-agent/backend/gen/aerov1"
@@ -20,8 +21,7 @@ func (s *Service) HandleAlert(ctx context.Context, value []byte) error {
 	}
 
 	if ev.GetResolved() {
-		_, err := s.pool.Exec(ctx, "UPDATE incidents SET status = 'resolved', resolved_at = now() WHERE alert_id = $1 AND status <> 'resolved'", ev.GetAlertId())
-		return err
+		return s.resolveIncident(ctx, ev.GetAlertId())
 	}
 
 	incident, created, err := s.openIncident(ctx, &ev)
@@ -72,4 +72,58 @@ func (s *Service) openIncident(ctx context.Context, ev *aerov1.AlertEvent) (id s
 			map[string]any{"alert": ev.GetAlertId(), "metric": ev.GetMetric(), "value": ev.GetValue(), "threshold": ev.GetThreshold()})
 	})
 	return id, created, err
+}
+
+// resolveIncident closes the incident when its alert clears on its own. Fixes still waiting for a
+// human are cancelled, so nobody approves a dangerous action for a problem that no longer exists,
+// and the agent waiting on them is told straight away.
+func (s *Service) resolveIncident(ctx context.Context, alertID string) error {
+	type cancelled struct{ id, host, incident string }
+	var stale []cancelled
+
+	err := s.inTx(ctx, func(tx pgxTx) error {
+		var incident, host string
+		err := tx.QueryRow(ctx, `UPDATE incidents SET status = 'resolved', resolved_at = now()
+			WHERE alert_id = $1 AND status <> 'resolved' RETURNING id::text, host_id`, alertID).Scan(&incident, &host)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil // already resolved, or unknown
+		}
+		if err != nil {
+			return err
+		}
+
+		rows, err := tx.Query(ctx, `UPDATE remediation_actions SET status = 'rejected', updated_at = now()
+			WHERE incident_id = $1::uuid AND status = 'awaiting_approval' RETURNING id::text`, incident)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			stale = append(stale, cancelled{id, host, incident})
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, c := range stale {
+			if err := auditTx(ctx, tx, "system", "action_cancelled", incident,
+				map[string]any{"action": c.id, "reason": "the alert resolved on its own before anyone approved it"}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, c := range stale {
+		s.reg.send(c.host, &aerov1.OrchestratorMessage{Body: &aerov1.OrchestratorMessage_Approval{
+			Approval: &aerov1.ApprovalDecision{IncidentId: c.incident, ProposalId: c.id, Approved: false, DecidedBy: "system (alert resolved)"}}})
+	}
+	return nil
 }
