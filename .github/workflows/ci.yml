@@ -22,6 +22,19 @@ env:
 jobs:
   backend:
     runs-on: ubuntu-24.04
+    # a real database: the tenant-isolation tests skip without one, and a skipped isolation test protects nothing
+    services:
+      db:
+        image: timescale/timescaledb:2.32.1-pg17
+        env:
+          POSTGRES_USER: aero
+          POSTGRES_PASSWORD: aero
+          POSTGRES_DB: aero_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U aero -d aero_test" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      AERO_TEST_DATABASE_URL: postgres://aero:aero@localhost:5432/aero_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -40,6 +53,9 @@ jobs:
           make proto
           go vet ./...
           go test -race -count=1 ./...
+          # the isolation suites must actually run, not skip
+          go test -count=1 -v -run 'TestTenantIsolation|TestIncidentsStayInTheirHostsOrganization' ./internal/api ./internal/orchestrator | tee /tmp/iso.txt
+          ! grep -q -- '--- SKIP' /tmp/iso.txt
       - name: Known vulnerabilities
         working-directory: backend
         run: |
