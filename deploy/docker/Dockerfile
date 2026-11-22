@@ -8,7 +8,7 @@ RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 
-FROM golang:1.26.11-bookworm AS build
+FROM golang:1.27.4-bookworm AS build
 RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev make \
     && rm -rf /var/lib/apt/lists/*
 # generated protobuf code is not committed, so it is generated here with pinned plugins
