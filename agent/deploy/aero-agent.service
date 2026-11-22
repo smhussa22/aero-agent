@@ -1,0 +1,35 @@
+# The monitoring agent only reads /proc and the filesystem's capacity, and makes one outbound connection.
+# It needs no privileges at all, so it gets none. Install to /etc/systemd/system/.
+#   sudo install -d -m 755 /etc/aero-agent
+#   sudo install -m 600 -o root aero-agent.env /etc/aero-agent/env     (see docs/install-agents.md)
+[Unit]
+Description=Aero Agent monitoring agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/aero-agent/env
+ExecStart=/usr/local/bin/aero-agent ${AERO_GATEWAY} 5
+Restart=always
+RestartSec=5
+
+DynamicUser=yes
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target
