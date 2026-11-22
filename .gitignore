@@ -33,6 +33,7 @@ dist/
 # secrets / IDE / OS
 .env
 .env.*
+!.env.example
 .vscode/
 .idea/
 .DS_Store
@@ -44,3 +45,6 @@ project-desc.md
 # local review output
 shots/
 .playwright-mcp/
+
+# self-hosting
+deploy/docker/certs/

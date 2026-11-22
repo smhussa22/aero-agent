@@ -1,0 +1,142 @@
+# Self-hosted Aero Agent: database, message bus, the backend services and the web app.
+#
+#   ./gen-certs.sh localhost            (or your domain / IP; use a real certificate in production)
+#   cp .env.example .env                (set POSTGRES_PASSWORD)
+#   docker compose up -d --build
+#   docker compose run --rm -T tools userctl create you@example.com admin   (password on stdin)
+#
+# Only the web app and the two agent-facing gRPC ports are published. The database and Kafka stay on the
+# private compose network. Every service runs as an unprivileged user with a read-only filesystem.
+
+x-service: &service
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: [/tmp]
+  logging: { driver: json-file, options: { max-size: 10m, max-file: "3" } }
+
+x-backend: &backend
+  <<: *service
+  image: aero-backend:local
+  build: { context: ../.., dockerfile: deploy/docker/Dockerfile }
+  depends_on:
+    migrate: { condition: service_completed_successfully }
+    certs: { condition: service_completed_successfully }
+    kafka: { condition: service_healthy }
+
+x-env: &env
+  DATABASE_URL: postgres://aero:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/aero
+  KAFKA_BROKERS: kafka:9092
+
+x-tls: &tls
+  TLS_CERT_FILE: /certs/server.crt
+  TLS_KEY_FILE: /certs/server.key
+
+services:
+  # copies the certificate into a volume the unprivileged services can read; the key stays 0400
+  certs:
+    image: busybox:1.36
+    restart: "no"
+    volumes: [./certs:/in:ro, certs:/out]
+    command: >
+      sh -c "test -f /in/server.crt -a -f /in/server.key || { echo 'run ./gen-certs.sh first' >&2; exit 1; };
+      cp /in/server.crt /in/server.key /out/ && chown 65532:65532 /out/server.* && chmod 0444 /out/server.crt && chmod 0400 /out/server.key"
+
+  db:
+    <<: *service
+    image: timescale/timescaledb:2.17.2-pg16
+    read_only: false # postgres writes to its own directories
+    cap_drop: []
+    environment:
+      POSTGRES_USER: aero
+      POSTGRES_DB: aero
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aero -d aero"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  kafka:
+    <<: *service
+    image: apache/kafka:3.8.0
+    read_only: false
+    cap_drop: []
+    tmpfs: [] # Kafka unpacks a native compression library into /tmp, and Docker mounts tmpfs noexec
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_LOG_RETENTION_HOURS: 72
+    volumes: [kafkadata:/var/lib/kafka/data]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+
+  migrate:
+    <<: *service
+    image: aero-backend:local
+    build: { context: ../.., dockerfile: deploy/docker/Dockerfile }
+    restart: "no"
+    command: [migrate]
+    environment: *env
+    depends_on:
+      db: { condition: service_healthy }
+
+  ingest:
+    <<: *backend
+    command: [ingest]
+    environment: { <<: [*env, *tls], LISTEN_ADDR: ":50051" }
+    volumes: [certs:/certs:ro]
+    ports: ["50051:50051"]
+
+  metrics-writer:
+    <<: *backend
+    command: [metrics-writer]
+    environment: *env
+
+  alert-engine:
+    <<: *backend
+    command: [alert-engine]
+    environment: *env
+
+  orchestrator:
+    <<: *backend
+    command: [orchestrator]
+    environment: { <<: [*env, *tls], ORCH_ADDR: ":50052" }
+    volumes: [certs:/certs:ro]
+    ports: ["50052:50052"]
+
+  api:
+    <<: *backend
+    command: [api]
+    environment: { <<: [*env, *tls], API_ADDR: ":8080" }
+    volumes: [certs:/certs:ro]
+    ports: ["8080:8080"]
+
+  # one-off commands: docker compose run --rm -T tools hostctl add web-1
+  tools:
+    <<: *service
+    image: aero-backend:local
+    restart: "no"
+    profiles: [tools]
+    environment: *env
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+volumes:
+  pgdata:
+  kafkadata:
+  certs:

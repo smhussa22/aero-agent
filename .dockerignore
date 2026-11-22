@@ -1,0 +1,15 @@
+.git
+**/node_modules
+web/dist
+backend/gen
+backend/bin
+agent/build
+**/.env
+**/.env.*
+deploy/docker/certs
+deploy/terraform/.terraform
+**/*.tfstate*
+shots
+.playwright-mcp
+project-desc.md
+progress.md
