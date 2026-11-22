@@ -3,11 +3,11 @@ import { deriveAlerts } from './alerts'
 import type { Host, Incident, Pending } from './api'
 
 const now = Date.parse('2026-01-01T12:00:00Z')
-const host = (id: string, last: string | null): Host => ({ id, mode: 'observe', last_seen: last })
+const host = (id: string, last: string | null): Host => ({ id, name: id, mode: 'observe', last_seen: last })
 const inc = (id: string, status: Incident['status'], summary = ''): Incident =>
-  ({ id, host_id: 'web-1', alert_id: 'a' + id, status, summary, opened_at: '2026-01-01T11:50:00Z', resolved_at: null })
+  ({ id, host_id: 'web-1', host_name: 'web-1', alert_id: 'a' + id, status, summary, opened_at: '2026-01-01T11:50:00Z', resolved_at: null })
 const pend = (id: string, dangerous: boolean): Pending =>
-  ({ id, incident_id: 'i1', host_id: 'web-1', action_id: 'kill_process', params: {}, rationale: 'runaway', dangerous, summary: '', created_at: '2026-01-01T11:55:00Z' })
+  ({ id, incident_id: 'i1', host_id: 'web-1', host_name: 'web-1', action_id: 'kill_process', params: {}, rationale: 'runaway', dangerous, summary: '', created_at: '2026-01-01T11:55:00Z' })
 
 describe('deriveAlerts', () => {
   it('raises approvals, escalations, findings, unattended incidents and silent hosts', () => {

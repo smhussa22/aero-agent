@@ -42,7 +42,7 @@ function List() {
         : <div className="stack">{shown.map((i) => (
           <a key={i.id} className="card" href={`#/incidents/${i.id}`}>
             <div className="row" style={{ gap: 'var(--s-2)', marginBottom: 'var(--s-2)' }}>
-              <IncidentBadge status={i.status} /><strong>{i.host_id}</strong><span className="muted small">{timeAgo(i.opened_at)}</span>
+              <IncidentBadge status={i.status} /><strong>{i.host_name}</strong><span className="muted small">{timeAgo(i.opened_at)}</span>
             </div>
             <p style={{ color: 'var(--ink-2)', overflowWrap: 'anywhere' }}>{i.summary || 'Waiting for the AI agent to investigate.'}</p>
           </a>
@@ -57,7 +57,7 @@ function Detail({ id }: { id: string }) {
 
   const askAi = () => {
     if (!data) return
-    chat.setDraft(`Explain this incident on ${data.host_id} in plain English and tell me what I should do. Status: ${data.status}. Summary: ${data.summary || 'none yet'}`)
+    chat.setDraft(`Explain this incident on ${data.host_name} in plain English and tell me what I should do. Status: ${data.status}. Summary: ${data.summary || 'none yet'}`)
     location.hash = '#/assistant'
   }
 
@@ -69,7 +69,7 @@ function Detail({ id }: { id: string }) {
         <>
           <div className="page-head">
             <div className="grow">
-              <div className="row" style={{ gap: 'var(--s-2)', marginBottom: 'var(--s-2)' }}><IncidentBadge status={data.status} /><span className="muted">{data.host_id} · opened {timeAgo(data.opened_at)}</span></div>
+              <div className="row" style={{ gap: 'var(--s-2)', marginBottom: 'var(--s-2)' }}><IncidentBadge status={data.status} /><span className="muted">{data.host_name} · opened {timeAgo(data.opened_at)}</span></div>
               <h1>{data.summary ? 'What the AI agent found' : 'Waiting for the AI agent'}</h1>
             </div>
             <button className="btn" onClick={askAi}><Sparkles size={16} aria-hidden /> Ask my AI about this</button>
@@ -94,7 +94,7 @@ function Detail({ id }: { id: string }) {
                   </div>
                   <p className="mono muted" style={{ overflowWrap: 'anywhere' }}>{paramsText(a.params)}</p>
                   {a.rationale && <p className="small" style={{ margin: 'var(--s-2) 0' }}>{a.rationale}</p>}
-                  {a.status === 'awaiting_approval' && <DecisionButtons id={a.id} label={`${a.action_id} on ${data.host_id}`} onDone={() => { reload(); reloadDetail() }} />}
+                  {a.status === 'awaiting_approval' && <DecisionButtons id={a.id} label={`${a.action_id} on ${data.host_name}`} onDone={() => { reload(); reloadDetail() }} />}
                 </div>
               )
             })}</div>}

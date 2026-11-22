@@ -64,11 +64,11 @@ export function PendingItem({ p }: { p: Pending }) {
       <div className="row" style={{ gap: 'var(--s-2)' }}>
         <strong>{p.action_id.replace(/_/g, ' ')}</strong>
         {p.dangerous && <Badge tone="crit">Dangerous</Badge>}
-        <span className="muted small">on {p.host_id}</span>
+        <span className="muted small">on {p.host_name}</span>
       </div>
       <p className="mono muted" style={{ overflowWrap: 'anywhere' }}>{paramsText(p.params)}</p>
       {p.rationale && <p className="small" style={{ margin: 'var(--s-1) 0 var(--s-2)' }}>{p.rationale}</p>}
-      <DecisionButtons id={p.id} label={`${p.action_id} on ${p.host_id}`} />
+      <DecisionButtons id={p.id} label={`${p.action_id} on ${p.host_name}`} />
     </div>
   )
 }

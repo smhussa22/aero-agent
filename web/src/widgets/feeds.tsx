@@ -6,15 +6,16 @@ import { useLive } from '../lib/live'
 import { usePoll } from '../lib/poll'
 import { Badge, Empty, ErrorLine, Meter } from '../components/ui'
 import { IncidentBadge, ModeBadge, PendingItem } from '../components/status'
-import { useHostId, useLatest } from './hooks'
+import { useHostId, useHostName, useLatest } from './hooks'
 import type { WidgetProps } from './registry'
 
 export function MetersWidget({ config }: WidgetProps) {
   const host = useHostId(config.host ?? '')
+  const hostName = useHostName(host)
   const { data, loading } = useLatest(host)
   const rows = (data ?? []).filter((l) => l.metric === 'memory.used_percent' || l.metric === 'disk.used_percent')
   if (!host) return <Empty title="No hosts yet" />
-  if (rows.length === 0) return <Empty title="No usage data">{loading ? 'Loading…' : `${host} has not reported memory or disk usage recently.`}</Empty>
+  if (rows.length === 0) return <Empty title="No usage data">{loading ? 'Loading…' : `${hostName} has not reported memory or disk usage recently.`}</Empty>
   return (
     <ul className="list">
       {rows.map((r) => (
@@ -40,7 +41,7 @@ export function HostsWidget(_: WidgetProps) {
         return (
           <li key={h.id} style={{ alignItems: 'center' }}>
             <div className="grow">
-              <strong style={{ overflowWrap: 'break-word' }}>{h.id}</strong>
+              <strong style={{ overflowWrap: 'break-word' }}>{h.name}</strong>
               <p className="muted small">{h.last_seen ? `Reported ${timeAgo(h.last_seen)}` : 'Has not reported yet'}</p>
             </div>
             {silent ? <Badge tone="warn">Silent</Badge> : h.last_seen ? <Badge tone="good">Reporting</Badge> : null}
@@ -62,7 +63,7 @@ export function IncidentsWidget(_: WidgetProps) {
           <a href={`#/incidents/${i.id}`} style={{ flex: 1, minWidth: 0, textDecoration: 'none' }}>
             <div className="row" style={{ gap: 'var(--s-2)' }}>
               <IncidentBadge status={i.status} />
-              <strong>{i.host_id}</strong>
+              <strong>{i.host_name}</strong>
               <span className="muted small">{timeAgo(i.opened_at)}</span>
             </div>
             <p className="small" style={{ marginTop: 'var(--s-1)', color: 'var(--ink-2)', overflowWrap: 'anywhere' }}>

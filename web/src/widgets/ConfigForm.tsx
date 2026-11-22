@@ -25,7 +25,7 @@ export function ConfigForm({ fields, config, onChange }: { fields: FieldDef[]; c
           control = (
             <select id={id} className="input" value={config[f.key] ?? ''} onChange={(e) => set(f.key, e.target.value)}>
               <option value="">First host</option>
-              {hosts.map((h) => <option key={h.id} value={h.id}>{h.id}</option>)}
+              {hosts.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
             </select>
           )
         } else if (f.kind === 'metric') {

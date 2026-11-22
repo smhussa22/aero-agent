@@ -1,6 +1,6 @@
 // Typed client for the Go API. The session token lives in sessionStorage, so closing the tab signs out.
 
-export type Host = { id: string; mode: 'observe' | 'recommend' | 'autonomous'; last_seen: string | null }
+export type Host = { id: string; name: string; mode: 'observe' | 'recommend' | 'autonomous'; last_seen: string | null }
 export type Point = { time: string; value: number }
 export type Latest = { metric: string; label: string; value: number; time: string }
 export type Rule = {
@@ -9,7 +9,7 @@ export type Rule = {
   severity: 'info' | 'warning' | 'critical'; enabled: boolean
 }
 export type Incident = {
-  id: string; host_id: string; alert_id: string
+  id: string; host_id: string; host_name: string; alert_id: string
   status: 'open' | 'investigating' | 'remediating' | 'resolved' | 'escalated'
   summary: string; opened_at: string; resolved_at: string | null
 }
@@ -19,7 +19,7 @@ export type Action = {
 }
 export type IncidentDetail = Incident & { actions: Action[] }
 export type Pending = {
-  id: string; incident_id: string; host_id: string; action_id: string; params: Record<string, string>
+  id: string; incident_id: string; host_id: string; host_name: string; action_id: string; params: Record<string, string>
   rationale: string; dangerous: boolean; summary: string; created_at: string
 }
 export type AuditEntry = { id: number; at: string; actor: string; event: string; incident_id: string; details: Record<string, unknown> }

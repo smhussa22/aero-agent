@@ -20,7 +20,7 @@ export function HostsPage() {
 
   const setMode = async (h: Host, mode: Host['mode']) => {
     setSaveError(null)
-    try { await api(`/api/hosts/${encodeURIComponent(h.id)}`, { method: 'PATCH', body: { mode } }); toast({ tone: 'good', title: `${h.id} is now ${mode}` }); reload() }
+    try { await api(`/api/hosts/${encodeURIComponent(h.id)}`, { method: 'PATCH', body: { mode } }); toast({ tone: 'good', title: `${h.name} is now ${mode}` }); reload() }
     catch (e) { setSaveError(e instanceof Error ? e.message : 'Could not change the mode.') }
   }
 
@@ -39,14 +39,14 @@ export function HostsPage() {
               <div className="card" key={h.id}>
                 <div className="row" style={{ justifyContent: 'space-between' }}>
                   <div>
-                    <strong style={{ overflowWrap: 'anywhere' }}>{h.id}</strong>
+                    <strong style={{ overflowWrap: 'anywhere' }}>{h.name}</strong>
                     <p className="muted small">{h.last_seen ? `Reported ${timeAgo(h.last_seen)}` : 'Has not reported yet'}</p>
                   </div>
                   {silent ? <Badge tone="warn">Silent</Badge> : h.last_seen ? <Badge tone="good">Reporting</Badge> : <Badge>Waiting</Badge>}
                 </div>
                 <fieldset style={{ border: 0, padding: 0, margin: 'var(--s-4) 0 0' }} disabled={!admin}>
                   <legend className="label" style={{ padding: 0, marginBottom: 'var(--s-2)' }}>Permission mode{admin ? '' : ' (admins can change this)'}</legend>
-                  <div className="seg" role="group" aria-label={`Permission mode for ${h.id}`}>
+                  <div className="seg" role="group" aria-label={`Permission mode for ${h.name}`}>
                     {MODES.map((m) => <button key={m.value} aria-pressed={h.mode === m.value} onClick={() => setMode(h, m.value)}>{m.label}</button>)}
                   </div>
                   <p className="hint" style={{ marginTop: 'var(--s-2)' }}>{MODES.find((m) => m.value === h.mode)?.hint}</p>

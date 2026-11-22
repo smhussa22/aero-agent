@@ -13,6 +13,7 @@ const blank: Omit<Rule, 'id'> = { host_id: null, name: '', metric: 'cpu.usage_pe
 export function RulesPage() {
   const toast = useToast()
   const admin = isAdmin()
+  const { hosts } = useLive()
   const { data, error, loading, reload } = usePoll((signal) => api<Rule[]>('/api/rules', { signal }), [], 30)
   const [editing, setEditing] = useState<Rule | (Omit<Rule, 'id'> & { id?: undefined }) | null>(null)
 
@@ -40,7 +41,7 @@ export function RulesPage() {
                 <tr key={r.id}>
                   <td><strong>{r.name}</strong>{!r.enabled && <> <Badge>Off</Badge></>}</td>
                   <td>{metricName(r.metric, r.label)} {r.operator} {r.threshold}{r.duration_seconds ? ` for ${r.duration_seconds}s` : ''}</td>
-                  <td>{r.host_id ?? 'All hosts'}</td>
+                  <td>{r.host_id ? hosts.find((h) => h.id === r.host_id)?.name ?? 'A removed host' : 'All hosts'}</td>
                   <td><Badge tone={r.severity === 'critical' ? 'crit' : r.severity === 'warning' ? 'warn' : 'info'}>{r.severity[0].toUpperCase() + r.severity.slice(1)}</Badge></td>
                   {admin && <td style={{ whiteSpace: 'nowrap' }}>
                     <button className="btn icon sm ghost" aria-label={`Edit ${r.name}`} onClick={() => setEditing(r)}><Pencil size={16} /></button>
@@ -82,7 +83,7 @@ function RuleDialog({ rule, onClose, onSaved }: { rule: Rule | (Omit<Rule, 'id'>
         <label className="field"><span>Name</span><input className="input" required maxLength={200} value={r.name} onChange={(e) => set('name', e.target.value)} placeholder="CPU high" /></label>
         <label className="field"><span>Applies to</span>
           <select className="input" value={r.host_id ?? ''} onChange={(e) => set('host_id', e.target.value || null)}>
-            <option value="">All hosts</option>{hosts.map((h) => <option key={h.id} value={h.id}>{h.id}</option>)}
+            <option value="">All hosts</option>{hosts.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
           </select>
         </label>
         <label className="field"><span>Metric</span>

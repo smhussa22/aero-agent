@@ -122,11 +122,11 @@ export async function snapshot(): Promise<string> {
     const nums = latest
       .filter((l) => /usage_percent|used_percent|load_1m/.test(l.metric))
       .map((l) => `${metricName(l.metric, l.label)} ${fmtPlain(l.value, unitOf(l.metric))}`)
-    lines.push(`- ${h.id} (mode ${h.mode}, last seen ${h.last_seen ?? 'never'}): ${nums.join('; ') || 'no recent data'}`)
+    lines.push(`- ${h.name} (mode ${h.mode}, last seen ${h.last_seen ?? 'never'}): ${nums.join('; ') || 'no recent data'}`)
   }
   lines.push('', `Recent incidents (${incidents.length}):`)
-  for (const i of incidents) lines.push(`- ${i.status} on ${i.host_id} since ${i.opened_at}: ${i.summary || 'no summary yet'}`)
+  for (const i of incidents) lines.push(`- ${i.status} on ${i.host_name} since ${i.opened_at}: ${i.summary || 'no summary yet'}`)
   lines.push('', `Actions waiting for approval (${pending.length}):`)
-  for (const p of pending) lines.push(`- ${p.action_id} ${JSON.stringify(p.params)} on ${p.host_id}${p.dangerous ? ' (dangerous)' : ''}: ${p.rationale}`)
+  for (const p of pending) lines.push(`- ${p.action_id} ${JSON.stringify(p.params)} on ${p.host_name}${p.dangerous ? ' (dangerous)' : ''}: ${p.rationale}`)
   return fence('Dashboard snapshot', redact(lines.join('\n')))
 }

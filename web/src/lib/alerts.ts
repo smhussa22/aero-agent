@@ -20,7 +20,7 @@ export function deriveAlerts(hosts: Host[], incidents: Incident[], pending: Pend
   for (const p of pending) {
     out.push({
       id: `approval:${p.id}`, kind: 'approval', tone: p.dangerous ? 'crit' : 'warn',
-      title: `Approval needed: ${p.action_id.replace(/_/g, ' ')} on ${p.host_id}`,
+      title: `Approval needed: ${p.action_id.replace(/_/g, ' ')} on ${p.host_name}`,
       detail: p.rationale || p.summary || 'The AI agent proposed a fix and is waiting for your decision.',
       at: p.created_at, href: `#/incidents/${p.incident_id}`,
     })
@@ -31,20 +31,20 @@ export function deriveAlerts(hosts: Host[], incidents: Incident[], pending: Pend
     if (i.status === 'escalated') {
       out.push({
         id: `escalated:${i.id}`, kind: 'escalated', tone: 'crit',
-        title: `The fix did not help on ${i.host_id}`,
+        title: `The fix did not help on ${i.host_name}`,
         detail: i.summary || 'The problem persisted after the agent acted. A person needs to look.',
         at: i.opened_at, href: `#/incidents/${i.id}`,
       })
     } else if (i.summary) {
       out.push({
         id: `finding:${i.id}`, kind: 'finding', tone: 'info',
-        title: `AI found a likely cause on ${i.host_id}`, detail: i.summary,
+        title: `AI found a likely cause on ${i.host_name}`, detail: i.summary,
         at: i.opened_at, href: `#/incidents/${i.id}`,
       })
     } else {
       out.push({
         id: `open:${i.id}`, kind: 'open', tone: 'warn',
-        title: `Incident opened on ${i.host_id}`,
+        title: `Incident opened on ${i.host_name}`,
         detail: 'No remediation agent has reported on this yet.',
         at: i.opened_at, href: `#/incidents/${i.id}`,
       })
@@ -55,7 +55,7 @@ export function deriveAlerts(hosts: Host[], incidents: Incident[], pending: Pend
     if (h.last_seen && now - new Date(h.last_seen).getTime() > SILENT_AFTER_MS) {
       out.push({
         id: `silent:${h.id}`, kind: 'silent', tone: 'warn',
-        title: `No data from ${h.id}`, detail: 'The monitoring agent has stopped reporting. The server may be down or the agent stopped.',
+        title: `No data from ${h.name}`, detail: 'The monitoring agent has stopped reporting. The server may be down or the agent stopped.',
         at: h.last_seen, href: '#/hosts',
       })
     }

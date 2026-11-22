@@ -13,6 +13,12 @@ export function useHostId(configured: string): string {
   return hosts[0]?.id ?? ''
 }
 
+// the readable name of a host; ids are internal
+export function useHostName(id: string): string {
+  const { hosts } = useLive()
+  return hosts.find((h) => h.id === id)?.name ?? id
+}
+
 export function useLatest(host: string) {
   return usePoll((signal) => (host ? api<Latest[]>(`/api/hosts/${q(host)}/latest`, { signal }) : Promise.resolve([])), [host])
 }

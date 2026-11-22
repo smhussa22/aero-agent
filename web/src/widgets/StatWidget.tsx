@@ -3,13 +3,14 @@ import { fmtValue, metricName, splitKey, unitOf } from '../lib/format'
 import { usePoll } from '../lib/poll'
 import { Badge, Empty, Meter } from '../components/ui'
 import { Sparkline } from '../components/LineChart'
-import { useHostId, useLatest } from './hooks'
+import { useHostId, useHostName, useLatest } from './hooks'
 import type { WidgetProps } from './registry'
 
 const nz = (s: string | undefined, d: number) => (s !== undefined && s.trim() !== '' && Number.isFinite(Number(s)) ? Number(s) : d)
 
 export function StatWidget({ config }: WidgetProps) {
   const host = useHostId(config.host ?? '')
+  const hostName = useHostName(host)
   const { metric, label } = splitKey(config.metric ?? 'cpu.usage_percent|')
   const latest = useLatest(host)
   const trend = usePoll(async (signal) => {
@@ -20,7 +21,7 @@ export function StatWidget({ config }: WidgetProps) {
 
   const current = latest.data?.find((l) => l.metric === metric && l.label === label)
   if (!host) return <Empty title="No hosts yet">Add a host and its numbers will show here.</Empty>
-  if (!current) return <Empty title="No data">{latest.loading ? 'Loading…' : `${host} has not reported ${metricName(metric, label)} recently.`}</Empty>
+  if (!current) return <Empty title="No data">{latest.loading ? 'Loading…' : `${hostName} has not reported ${metricName(metric, label)} recently.`}</Empty>
 
   const unit = unitOf(metric)
   const v = fmtValue(current.value, unit)
@@ -31,7 +32,7 @@ export function StatWidget({ config }: WidgetProps) {
   return (
     <div className="stat">
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <span className="label">{host}</span>
+        <span className="label">{hostName}</span>
         {isPct && <Badge tone={level as 'good' | 'warn' | 'crit'}>{level === 'crit' ? 'Critical' : level === 'warn' ? 'High' : 'Normal'}</Badge>}
       </div>
       <div><span className="value">{v.text}</span><span className="unit">{v.unit}</span></div>
