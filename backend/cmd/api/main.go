@@ -15,6 +15,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smhussa22/aero-agent/backend/internal/api"
+	"github.com/smhussa22/aero-agent/backend/internal/auth"
+	"github.com/smhussa22/aero-agent/backend/internal/mail"
 )
 
 func env(key, fallback string) string {
@@ -47,6 +49,26 @@ func main() {
 	defer pool.Close()
 
 	server := api.NewServer(pool)
+
+	// sign-in goes through an OpenID Connect provider (WorkOS AuthKit, Auth0, Clerk, Cognito, Keycloak, ...)
+	if issuer := os.Getenv("OIDC_ISSUER"); issuer != "" {
+		public := os.Getenv("PUBLIC_URL")
+		svc, err := auth.New(ctx, pool, auth.Config{
+			Issuer: issuer, ClientID: os.Getenv("OIDC_CLIENT_ID"), ClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
+			PublicURL: public, SignupOpen: os.Getenv("SIGNUP_OPEN") == "1",
+		})
+		if err != nil {
+			slog.Error("identity provider setup failed", "err", err)
+			os.Exit(1)
+		}
+		server.WithAuth(svc, public)
+		slog.Info("sign-in enabled", "issuer", issuer, "signup_open", os.Getenv("SIGNUP_OPEN") == "1")
+	} else {
+		slog.Warn("OIDC_ISSUER is not set: nobody can sign in")
+	}
+	if key := os.Getenv("RESEND_API_KEY"); key != "" {
+		server.WithMailer(mail.Resend{APIKey: key, From: os.Getenv("MAIL_FROM")})
+	}
 	// WEB_DIR serves the built web app from this same origin, so the browser never needs CORS
 	if dir := os.Getenv("WEB_DIR"); dir != "" {
 		var extra []string

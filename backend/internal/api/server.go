@@ -8,12 +8,15 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/time/rate"
 
+	"github.com/smhussa22/aero-agent/backend/internal/auth"
+	"github.com/smhussa22/aero-agent/backend/internal/mail"
 	"github.com/smhussa22/aero-agent/backend/internal/store"
 )
 
@@ -27,8 +30,13 @@ type Sessions interface {
 type Server struct {
 	pool     *pgxpool.Pool
 	sessions Sessions
-	login    *limiters // per client IP, strict
+	signin   *limiters // sign-in starts and returns, per client IP
 	perUser  *limiters // per authenticated user
+
+	auth         *auth.Service // nil until WithAuth: sign-in is then unavailable
+	publicURL    string        // where browsers reach this app
+	publicOrigin string        // scheme and host of publicURL: the only origin allowed to change things with a cookie
+	mailer       mail.Sender   // nil: invitations are not emailed
 
 	webDir       string   // built web app to serve, empty for API only
 	connectExtra []string // extra origins the web app may call
@@ -38,9 +46,24 @@ func NewServer(pool *pgxpool.Pool) *Server {
 	return &Server{
 		pool:     pool,
 		sessions: store.SessionStore{Pool: pool},
-		login:    newLimiters(rate.Limit(5.0/60), 5), // about 5 attempts a minute
+		signin:   newLimiters(rate.Limit(20.0/60), 20), // about 20 sign-in steps a minute per address
 		perUser:  newLimiters(20, 40),
 	}
+}
+
+// WithAuth turns on identity-provider sign-in. publicURL is how browsers reach this app.
+func (s *Server) WithAuth(a *auth.Service, publicURL string) *Server {
+	s.auth, s.publicURL = a, strings.TrimRight(publicURL, "/")
+	if u, err := url.Parse(s.publicURL); err == nil && u.Scheme != "" && u.Host != "" {
+		s.publicOrigin = u.Scheme + "://" + u.Host
+	}
+	return s
+}
+
+// WithMailer lets the server email invitations.
+func (s *Server) WithMailer(m mail.Sender) *Server {
+	s.mailer = m
+	return s
 }
 
 // limiters hands out one rate limiter per key.
@@ -85,12 +108,26 @@ func bearer(r *http.Request) string {
 	return strings.TrimSpace(h[len("Bearer "):])
 }
 
+// sessionToken finds the session: the browser's cookie, or a bearer token for non-browser clients.
+func sessionToken(r *http.Request) (token string, fromCookie bool) {
+	if c, err := r.Cookie(auth.SessionCookie); err == nil && c.Value != "" {
+		return c.Value, true
+	}
+	return bearer(r), false
+}
+
 // authed requires a valid session; admin additionally requires the admin role.
 func (s *Server) authed(admin bool, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token := bearer(r)
+		token, fromCookie := sessionToken(r)
 		if token == "" {
-			writeErr(w, http.StatusUnauthorized, "missing token")
+			writeErr(w, http.StatusUnauthorized, "not signed in")
+			return
+		}
+		// A browser attaches its cookie to requests another site triggers. Anything that changes data must therefore
+		// prove it came from this app's own pages, on top of the cookie's SameSite setting.
+		if fromCookie && r.Method != http.MethodGet && r.Method != http.MethodHead && !s.sameOrigin(r) {
+			writeErr(w, http.StatusForbidden, "cross-site request refused")
 			return
 		}
 		u, err := s.sessions.UserForSession(r.Context(), token)
@@ -115,11 +152,51 @@ func (s *Server) authed(admin bool, next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// Routes returns the full handler. Every route except login requires a session.
+// sameOrigin is true only when the request names this app's own origin. No Origin header is refused:
+// every browser sends one on a cross-site request that changes data.
+func (s *Server) sameOrigin(r *http.Request) bool {
+	return s.publicOrigin != "" && r.Header.Get("Origin") == s.publicOrigin
+}
+
+// signinRoute rate-limits the sign-in steps per client address and reports a missing provider plainly.
+func (s *Server) signinRoute(h func(*auth.Service, http.ResponseWriter, *http.Request)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.auth == nil {
+			writeErr(w, http.StatusServiceUnavailable, "sign-in is not configured on this server")
+			return
+		}
+		if !s.signin.allow(clientIP(r)) {
+			writeErr(w, http.StatusTooManyRequests, "too many sign-in attempts, wait a minute")
+			return
+		}
+		h(s.auth, w, r)
+	}
+}
+
+// Routes returns the full handler. Every route except the sign-in steps requires a session.
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/login", s.handleLogin)
-	mux.HandleFunc("POST /api/logout", s.authed(false, s.handleLogout))
+	mux.HandleFunc("GET /auth/login", s.signinRoute((*auth.Service).Login))
+	mux.HandleFunc("GET /auth/callback", s.signinRoute((*auth.Service).Callback))
+	mux.HandleFunc("POST /auth/logout", func(w http.ResponseWriter, r *http.Request) {
+		if s.auth == nil {
+			writeErr(w, http.StatusServiceUnavailable, "sign-in is not configured on this server")
+			return
+		}
+		if !s.sameOrigin(r) {
+			writeErr(w, http.StatusForbidden, "cross-site request refused")
+			return
+		}
+		s.auth.Logout(w, r)
+	})
+
+	mux.HandleFunc("GET /api/me", s.authed(false, s.handleMe))
+	mux.HandleFunc("GET /api/team", s.authed(false, s.handleTeam))
+	mux.HandleFunc("POST /api/invites", s.authed(true, s.handleInvite))
+	mux.HandleFunc("DELETE /api/invites/{id}", s.authed(true, s.handleRevokeInvite))
+	mux.HandleFunc("PATCH /api/members/{id}", s.authed(true, s.handleChangeMember))
+	mux.HandleFunc("DELETE /api/members/{id}", s.authed(true, s.handleRemoveMember))
+	mux.HandleFunc("POST /api/org/delete", s.authed(true, s.handleDeleteOrg))
 
 	mux.HandleFunc("GET /api/hosts", s.authed(false, s.handleListHosts))
 	mux.HandleFunc("PATCH /api/hosts/{id}", s.authed(true, s.handleSetHostMode))

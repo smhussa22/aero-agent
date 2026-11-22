@@ -27,8 +27,9 @@ func testServer() *Server {
 			"admin-tok":  {ID: "1", Email: "a@x.io", Role: "admin"},
 			"viewer-tok": {ID: "2", Email: "v@x.io", Role: "viewer"},
 		},
-		login:   newLimiters(0, 2),
-		perUser: newLimiters(1000, 1000),
+		signin:       newLimiters(0, 2),
+		perUser:      newLimiters(1000, 1000),
+		publicOrigin: "https://app.example.com",
 	}
 }
 
@@ -79,20 +80,78 @@ func TestUserRateLimit(t *testing.T) {
 	}
 }
 
-func TestLoginIsRateLimitedPerIP(t *testing.T) {
+func TestSignInStepsAreRateLimitedAndNeedAConfiguredProvider(t *testing.T) {
 	s := testServer()
-	// the limiter runs before any database access, so a nil pool is fine for the rejected request
-	s.login = newLimiters(0, 0)
-	rec := do(http.HandlerFunc(s.handleLogin), "POST", "/api/login", "")
-	if rec.Code != 429 {
+	h := s.Routes()
+	// no provider configured: a plain answer, not a crash
+	if rec := do(h, "GET", "/auth/login", ""); rec.Code != 503 {
+		t.Fatalf("unconfigured sign-in = %d, want 503", rec.Code)
+	}
+	if rec := do(h, "GET", "/auth/callback?code=x&state=y", ""); rec.Code != 503 {
+		t.Fatalf("unconfigured callback = %d, want 503", rec.Code)
+	}
+	// the limiter answers before any provider or database is touched
+	s.signin = newLimiters(0, 0)
+	s.auth = nil
+	if rec := do(s.Routes(), "GET", "/auth/login", ""); rec.Code != 503 {
 		t.Fatalf("status=%d", rec.Code)
 	}
 }
 
-func TestEveryRouteExceptLoginRequiresAuth(t *testing.T) {
+// A browser attaches its cookie to requests another site triggers, so anything that changes data with a cookie
+// must name this app's own origin. Bearer clients (not browsers) are not subject to this.
+func TestCookieSessionsCannotBeUsedAcrossSites(t *testing.T) {
+	s := testServer()
+	ran := false
+	h := s.authed(true, func(w http.ResponseWriter, r *http.Request) { ran = true; w.WriteHeader(204) })
+
+	send := func(method, origin, cookie, bearerTok string) int {
+		ran = false
+		req := httptest.NewRequest(method, "/x", strings.NewReader("{}"))
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		if cookie != "" {
+			req.AddCookie(&http.Cookie{Name: "aero_session", Value: cookie})
+		}
+		if bearerTok != "" {
+			req.Header.Set("Authorization", "Bearer "+bearerTok)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	for name, c := range map[string]struct {
+		method, origin, cookie, bearer string
+		want                           int
+		wantRan                        bool
+	}{
+		"cookie post from another site":     {"POST", "https://evil.example", "admin-tok", "", 403, false},
+		"cookie post with no origin":        {"POST", "", "admin-tok", "", 403, false},
+		"cookie delete from lookalike host": {"DELETE", "https://app.example.com.evil.example", "admin-tok", "", 403, false},
+		"cookie post from this app":         {"POST", "https://app.example.com", "admin-tok", "", 204, true},
+		"cookie read needs no origin":       {"GET", "", "admin-tok", "", 204, true},
+		"bearer client needs no origin":     {"POST", "", "", "admin-tok", 204, true},
+		"no credentials at all":             {"POST", "https://app.example.com", "", "", 401, false},
+	} {
+		if got := send(c.method, c.origin, c.cookie, c.bearer); got != c.want || ran != c.wantRan {
+			t.Errorf("%s: status %d (want %d), handler ran=%v (want %v)", name, got, c.want, ran, c.wantRan)
+		}
+	}
+
+	// with no public address configured, cookie writes are refused outright rather than allowed by default
+	s.publicOrigin = ""
+	if got := send("POST", "https://app.example.com", "admin-tok", ""); got != 403 {
+		t.Errorf("cookie write with no configured origin = %d, want 403", got)
+	}
+}
+
+func TestEveryRouteExceptSignInRequiresAuth(t *testing.T) {
 	h := testServer().Routes()
 	for _, r := range [][2]string{
-		{"POST", "/api/logout"}, {"GET", "/api/hosts"}, {"PATCH", "/api/hosts/h"}, {"GET", "/api/hosts/h/metrics"},
+		{"GET", "/api/me"}, {"GET", "/api/team"}, {"POST", "/api/invites"}, {"DELETE", "/api/invites/1"},
+		{"PATCH", "/api/members/1"}, {"DELETE", "/api/members/1"}, {"POST", "/api/org/delete"}, {"GET", "/api/hosts"}, {"PATCH", "/api/hosts/h"}, {"GET", "/api/hosts/h/metrics"},
 		{"GET", "/api/rules"}, {"POST", "/api/rules"}, {"PUT", "/api/rules/1"}, {"DELETE", "/api/rules/1"},
 		{"GET", "/api/incidents"}, {"GET", "/api/incidents/1"}, {"POST", "/api/actions/1/decision"},
 	} {
@@ -107,6 +166,8 @@ func TestWriteRoutesRejectViewers(t *testing.T) {
 	for _, r := range [][2]string{
 		{"PATCH", "/api/hosts/h"}, {"POST", "/api/rules"}, {"PUT", "/api/rules/1"},
 		{"DELETE", "/api/rules/1"}, {"POST", "/api/actions/1/decision"},
+		{"POST", "/api/invites"}, {"DELETE", "/api/invites/1"}, {"PATCH", "/api/members/1"},
+		{"DELETE", "/api/members/1"}, {"POST", "/api/org/delete"},
 	} {
 		if rec := do(h, r[0], r[1], "viewer-tok"); rec.Code != 403 {
 			t.Errorf("%s %s as viewer = %d, want 403", r[0], r[1], rec.Code)

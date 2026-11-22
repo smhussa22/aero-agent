@@ -10,19 +10,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/crypto/bcrypt"
 )
 
-const (
-	SessionTTL     = 12 * time.Hour
-	minPasswordLen = 12
-	maxPasswordLen = 72 // bcrypt ignores everything past 72 bytes, so reject instead of truncating
-)
+const SessionTTL = 12 * time.Hour
 
-var (
-	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrNoSession          = errors.New("no valid session")
-)
+var ErrNoSession = errors.New("no valid session")
 
 type User struct {
 	ID    string `json:"id"`
@@ -63,41 +55,7 @@ func SoleOrg(ctx context.Context, pool *pgxpool.Pool) (string, error) {
 	return ids[0], rows.Err()
 }
 
-// dummyHash makes Authenticate take the same time for unknown emails as for wrong passwords
-var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("dummy-password"), bcrypt.DefaultCost)
-
-func CreateUser(ctx context.Context, pool *pgxpool.Pool, orgID, email, password, role string) error {
-	if len(password) < minPasswordLen || len(password) > maxPasswordLen {
-		return errors.New("password must be 12 to 72 bytes")
-	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return err
-	}
-	_, err = pool.Exec(ctx, "INSERT INTO users (org_id, email, password_hash, role) VALUES ($1::uuid, $2, $3, $4)",
-		orgID, strings.ToLower(strings.TrimSpace(email)), string(hash), role)
-	return err
-}
-
-func Authenticate(ctx context.Context, pool *pgxpool.Pool, email, password string) (User, error) {
-	var u User
-	var hash string
-	err := pool.QueryRow(ctx, "SELECT id::text, org_id::text, email, role, password_hash FROM users WHERE email = $1",
-		strings.ToLower(strings.TrimSpace(email))).Scan(&u.ID, &u.OrgID, &u.Email, &u.Role, &hash)
-	if errors.Is(err, pgx.ErrNoRows) {
-		bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
-		return User{}, ErrInvalidCredentials
-	}
-	if err != nil {
-		return User{}, err
-	}
-	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
-		return User{}, ErrInvalidCredentials
-	}
-	return u, nil
-}
-
-// NewSession issues a bearer token valid for SessionTTL; the plaintext is returned once.
+// NewSession issues a session token valid for SessionTTL; the plaintext is returned once.
 func NewSession(ctx context.Context, pool *pgxpool.Pool, userID string) (string, time.Time, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {

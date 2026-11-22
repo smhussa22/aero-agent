@@ -11,8 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-
-	"github.com/smhussa22/aero-agent/backend/internal/store"
 )
 
 func fail(w http.ResponseWriter, err error) {
@@ -51,46 +49,6 @@ func (s *Server) requireHost(w http.ResponseWriter, r *http.Request, hostID stri
 		writeErr(w, http.StatusNotFound, "no such host")
 	}
 	return ok
-}
-
-// ---- auth ----
-
-func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	if !s.login.allow(clientIP(r)) {
-		writeErr(w, http.StatusTooManyRequests, "too many login attempts")
-		return
-	}
-	var in struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
-	if !decode(w, r, &in) {
-		return
-	}
-
-	u, err := store.Authenticate(r.Context(), s.pool, in.Email, in.Password)
-	if errors.Is(err, store.ErrInvalidCredentials) {
-		writeErr(w, http.StatusUnauthorized, "invalid email or password")
-		return
-	}
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	token, expires, err := store.NewSession(r.Context(), s.pool, u.ID)
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"token": token, "expires_at": expires, "user": u})
-}
-
-func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if err := store.DeleteSession(r.Context(), s.pool, bearer(r)); err != nil {
-		fail(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // ---- hosts and metrics ----

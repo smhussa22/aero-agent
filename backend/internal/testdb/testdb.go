@@ -16,8 +16,6 @@ import (
 	"github.com/smhussa22/aero-agent/backend/migrations"
 )
 
-const Password = "test-password-1234"
-
 // Open connects, applies migrations (idempotent) and returns the pool, or skips the test.
 func Open(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -69,10 +67,9 @@ func Seed(t *testing.T, pool *pgxpool.Pool, name string) Tenant {
 	var err error
 	tn.OrgID, err = store.CreateOrg(ctx, pool, "org "+name)
 	must(err)
-	must(store.CreateUser(ctx, pool, tn.OrgID, tn.Email, Password, "admin"))
-
 	var uid string
-	must(pool.QueryRow(ctx, "SELECT id::text FROM users WHERE email = $1", tn.Email).Scan(&uid))
+	must(pool.QueryRow(ctx, `INSERT INTO users (org_id, email, role, idp_issuer, idp_subject) VALUES ($1::uuid, $2, 'admin', 'https://idp.test', $3) RETURNING id::text`,
+		tn.OrgID, tn.Email, "sub-"+name).Scan(&uid))
 	tn.Token, _, err = store.NewSession(ctx, pool, uid)
 	must(err)
 
