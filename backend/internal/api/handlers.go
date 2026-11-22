@@ -163,10 +163,21 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// shortcut: returns raw points capped at maxMetricPoints; add time_bucket downsampling for long ranges
-	rows, err := s.pool.Query(r.Context(), `SELECT time, value FROM metrics
-		WHERE host_id = $1 AND metric = $2 AND ($3 = '' OR label = $3) AND time >= $4 AND time <= $5
-		ORDER BY time LIMIT $6`, r.PathValue("id"), metric, q.Get("label"), from, to, maxMetricPoints)
+	// bucket (seconds) averages points into time_bucket slots so a long range stays under the point cap;
+	// 0 returns raw points
+	bucket := 0
+	if v := q.Get("bucket"); v != "" {
+		if bucket, err = strconv.Atoi(v); err != nil || bucket < 0 || bucket > 86400 {
+			writeErr(w, http.StatusBadRequest, "bucket must be 0 to 86400 seconds")
+			return
+		}
+	}
+	rows, err := s.pool.Query(r.Context(), `SELECT t, v FROM (
+			SELECT CASE WHEN $6 > 0 THEN time_bucket($6 * interval '1 second', time) ELSE time END AS t,
+			       CASE WHEN $6 > 0 THEN avg(value) ELSE max(value) END AS v
+			FROM metrics WHERE host_id = $1 AND metric = $2 AND ($3 = '' OR label = $3) AND time >= $4 AND time <= $5
+			GROUP BY t ORDER BY t LIMIT $7) x ORDER BY t`,
+		r.PathValue("id"), metric, q.Get("label"), from, to, bucket, maxMetricPoints)
 	if err != nil {
 		fail(w, err)
 		return

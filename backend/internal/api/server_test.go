@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -129,5 +131,49 @@ func TestRuleValidation(t *testing.T) {
 		if bad.validate() == "" {
 			t.Errorf("%s was accepted", name)
 		}
+	}
+}
+
+func TestNewDashboardRoutesRequireAuth(t *testing.T) {
+	h := testServer().Routes()
+	for _, p := range []string{"/api/hosts/h/latest", "/api/approvals/pending", "/api/audit"} {
+		if rec := do(h, "GET", p, ""); rec.Code != 401 {
+			t.Errorf("GET %s without a token = %d, want 401", p, rec.Code)
+		}
+	}
+}
+
+func TestWebAppServesSPAWithCSPAndCannotEscapeItsDir(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "dist")
+	os.MkdirAll(filepath.Join(dir, "assets"), 0o755)
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("INDEX"), 0o644)
+	os.WriteFile(filepath.Join(dir, "assets", "app.js"), []byte("JS"), 0o644)
+	os.WriteFile(filepath.Join(root, "secret.txt"), []byte("SECRET"), 0o644) // outside the web dir
+
+	s := testServer().WithWebApp(dir, []string{"http://localhost:11434"})
+	h := s.Routes()
+
+	rec := do(h, "GET", "/incidents/123", "") // client-side route: falls back to index
+	if rec.Code != 200 || rec.Body.String() != "INDEX" {
+		t.Fatalf("SPA fallback: %d %q", rec.Code, rec.Body.String())
+	}
+	csp := rec.Header().Get("Content-Security-Policy")
+	for _, want := range []string{"script-src 'self'", "connect-src 'self' https://api.anthropic.com https://api.openai.com http://localhost:11434", "frame-ancestors 'none'"} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("CSP missing %q: %s", want, csp)
+		}
+	}
+	if rec := do(h, "GET", "/assets/app.js", ""); rec.Body.String() != "JS" || !strings.Contains(rec.Header().Get("Cache-Control"), "immutable") {
+		t.Errorf("asset: %q %q", rec.Body.String(), rec.Header().Get("Cache-Control"))
+	}
+	for _, p := range []string{"/../secret.txt", "/assets/../../secret.txt", "/%2e%2e/secret.txt"} {
+		if rec := do(h, "GET", p, ""); strings.Contains(rec.Body.String(), "SECRET") {
+			t.Errorf("%s escaped the web dir", p)
+		}
+	}
+	// the API is untouched by the static fallback
+	if rec := do(h, "GET", "/api/hosts", ""); rec.Code != 401 {
+		t.Errorf("/api/hosts = %d, want 401", rec.Code)
 	}
 }

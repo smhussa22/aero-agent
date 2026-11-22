@@ -29,6 +29,9 @@ type Server struct {
 	sessions Sessions
 	login    *limiters // per client IP, strict
 	perUser  *limiters // per authenticated user
+
+	webDir       string   // built web app to serve, empty for API only
+	connectExtra []string // extra origins the web app may call
 }
 
 func NewServer(pool *pgxpool.Pool) *Server {
@@ -121,6 +124,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/hosts", s.authed(false, s.handleListHosts))
 	mux.HandleFunc("PATCH /api/hosts/{id}", s.authed(true, s.handleSetHostMode))
 	mux.HandleFunc("GET /api/hosts/{id}/metrics", s.authed(false, s.handleMetrics))
+	mux.HandleFunc("GET /api/hosts/{id}/latest", s.authed(false, s.handleLatest))
 
 	mux.HandleFunc("GET /api/rules", s.authed(false, s.handleListRules))
 	mux.HandleFunc("POST /api/rules", s.authed(true, s.handleCreateRule))
@@ -130,6 +134,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/incidents", s.authed(false, s.handleListIncidents))
 	mux.HandleFunc("GET /api/incidents/{id}", s.authed(false, s.handleGetIncident))
 	mux.HandleFunc("POST /api/actions/{id}/decision", s.authed(true, s.handleDecision))
+	mux.HandleFunc("GET /api/approvals/pending", s.authed(false, s.handlePending))
+	mux.HandleFunc("GET /api/audit", s.authed(false, s.handleAudit))
+	if s.webDir != "" {
+		mux.Handle("GET /", s.webApp())
+	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")

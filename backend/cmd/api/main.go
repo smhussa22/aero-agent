@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -45,9 +46,21 @@ func main() {
 	}
 	defer pool.Close()
 
+	server := api.NewServer(pool)
+	// WEB_DIR serves the built web app from this same origin, so the browser never needs CORS
+	if dir := os.Getenv("WEB_DIR"); dir != "" {
+		var extra []string
+		for _, o := range strings.Split(os.Getenv("WEB_CONNECT_EXTRA"), ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				extra = append(extra, o)
+			}
+		}
+		server.WithWebApp(dir, extra)
+	}
+
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           api.NewServer(pool).Routes(),
+		Handler:           server.Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
