@@ -48,3 +48,11 @@ shots/
 
 # self-hosting
 deploy/docker/certs/
+
+# agent binaries a self-hosted server hands out; built by deploy/docker/try/build-release.sh
+deploy/docker/releases/
+
+# files the design plugin writes into the repo
+.github/agents/impeccable-*
+.github/hooks/impeccable.json
+.github/skills/impeccable/
