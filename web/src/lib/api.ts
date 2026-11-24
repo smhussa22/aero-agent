@@ -17,7 +17,8 @@ export type Action = {
   id: string; action_id: string; params: Record<string, string>; rationale: string
   dangerous: boolean; dry_run: boolean; status: string; created_at: string
 }
-export type IncidentDetail = Incident & { actions: Action[] }
+export type Trigger = { rule: string; metric: string; label: string; operator: string; severity: string; value: number; threshold: number }
+export type IncidentDetail = Incident & { trigger: Trigger; actions: Action[] }
 export type Pending = {
   id: string; incident_id: string; host_id: string; host_name: string; action_id: string; params: Record<string, string>
   rationale: string; dangerous: boolean; summary: string; created_at: string

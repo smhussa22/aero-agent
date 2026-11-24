@@ -377,11 +377,21 @@ func (s *Server) handleGetIncident(w http.ResponseWriter, r *http.Request) {
 		Status   string    `json:"status"`
 		Summary  string    `json:"summary"`
 		OpenedAt time.Time `json:"opened_at"`
+		Trigger  trigger   `json:"trigger"`
 		Actions  []action  `json:"actions"`
 	}
-	err := s.pool.QueryRow(r.Context(), `SELECT i.id::text, i.host_id, h.name, i.alert_id, i.status, COALESCE(i.summary, ''), i.opened_at
-		FROM incidents i JOIN hosts h ON h.id = i.host_id WHERE i.id = $1 AND i.org_id = $2::uuid`, id, userFrom(r.Context()).OrgID).
-		Scan(&inc.ID, &inc.HostID, &inc.HostName, &inc.AlertID, &inc.Status, &inc.Summary, &inc.OpenedAt)
+	// what fired: the rule (null if it was deleted since) and the values recorded when the incident opened
+	var opened map[string]any
+	err := s.pool.QueryRow(r.Context(), `SELECT i.id::text, i.host_id, h.name, i.alert_id, i.status, COALESCE(i.summary, ''), i.opened_at,
+		COALESCE(r.name, ''), COALESCE(r.operator, ''), COALESCE(r.severity, ''), COALESCE(r.label, ''),
+		(SELECT a.details FROM audit_log a WHERE a.incident_id = i.id AND a.event = 'incident_opened' ORDER BY a.id LIMIT 1)
+		FROM incidents i JOIN hosts h ON h.id = i.host_id LEFT JOIN alert_rules r ON r.id = i.rule_id AND r.org_id = i.org_id
+		WHERE i.id = $1 AND i.org_id = $2::uuid`, id, userFrom(r.Context()).OrgID).
+		Scan(&inc.ID, &inc.HostID, &inc.HostName, &inc.AlertID, &inc.Status, &inc.Summary, &inc.OpenedAt,
+			&inc.Trigger.Rule, &inc.Trigger.Operator, &inc.Trigger.Severity, &inc.Trigger.Label, &opened)
+	inc.Trigger.Metric, _ = opened["metric"].(string)
+	inc.Trigger.Value, _ = opened["value"].(float64)
+	inc.Trigger.Threshold, _ = opened["threshold"].(float64)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "no such incident")
 		return
@@ -486,4 +496,15 @@ func (s *Server) inTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// trigger says what made an incident open, so the page can show it without anyone digging through the audit log.
+type trigger struct {
+	Rule      string  `json:"rule"` // empty if the rule was deleted since
+	Metric    string  `json:"metric"`
+	Label     string  `json:"label"`
+	Operator  string  `json:"operator"`
+	Severity  string  `json:"severity"`
+	Value     float64 `json:"value"`
+	Threshold float64 `json:"threshold"`
 }
