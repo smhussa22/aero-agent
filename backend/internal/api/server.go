@@ -39,6 +39,8 @@ type Server struct {
 	mailer          mail.Sender   // nil: invitations are not emailed
 	gateway         string        // host:port new servers stream metrics to; empty disables enrollment
 	releasesDir     string        // agent binaries served at /releases/; empty: not served
+	supabaseURL     string        // Supabase project the login page signs in with; empty: not used
+	supabaseAnonKey string        // that project's public anon key
 
 	webDir       string   // built web app to serve, empty for API only
 	connectExtra []string // extra origins the web app may call
@@ -192,6 +194,8 @@ func (s *Server) Routes() http.Handler {
 		s.auth.Logout(w, r)
 	})
 
+	mux.HandleFunc("GET /api/config", s.handleConfig)
+	mux.HandleFunc("POST /auth/session", s.sessionRoute)
 	mux.HandleFunc("GET /install.sh", s.handleInstallScript)
 	if s.releasesDir != "" {
 		mux.HandleFunc("GET /releases/{file}", s.handleReleases)
