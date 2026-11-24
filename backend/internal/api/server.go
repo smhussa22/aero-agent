@@ -33,10 +33,12 @@ type Server struct {
 	signin   *limiters // sign-in starts and returns, per client IP
 	perUser  *limiters // per authenticated user
 
-	auth         *auth.Service // nil until WithAuth: sign-in is then unavailable
-	publicURL    string        // where browsers reach this app
-	publicOrigin string        // scheme and host of publicURL: the only origin allowed to change things with a cookie
-	mailer       mail.Sender   // nil: invitations are not emailed
+	auth            *auth.Service // nil until WithAuth: sign-in is then unavailable
+	publicURL       string        // where browsers reach this app
+	publicOrigin    string        // scheme and host of publicURL: the only origin allowed to change things with a cookie
+	mailer          mail.Sender   // nil: invitations are not emailed
+	gateway         string        // host:port new servers stream metrics to; empty disables enrollment
+	releasesDir     string        // agent binaries served at /releases/; empty: not served
 
 	webDir       string   // built web app to serve, empty for API only
 	connectExtra []string // extra origins the web app may call
@@ -190,6 +192,12 @@ func (s *Server) Routes() http.Handler {
 		s.auth.Logout(w, r)
 	})
 
+	mux.HandleFunc("GET /install.sh", s.handleInstallScript)
+	if s.releasesDir != "" {
+		mux.HandleFunc("GET /releases/{file}", s.handleReleases)
+	}
+	mux.HandleFunc("POST /enroll", s.handleEnroll)
+	mux.HandleFunc("POST /api/enrollments", s.authed(true, s.handleCreateEnrollment))
 	mux.HandleFunc("GET /api/me", s.authed(false, s.handleMe))
 	mux.HandleFunc("GET /api/team", s.authed(false, s.handleTeam))
 	mux.HandleFunc("POST /api/invites", s.authed(true, s.handleInvite))

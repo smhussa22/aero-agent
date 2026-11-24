@@ -66,6 +66,10 @@ func main() {
 	} else {
 		slog.Warn("OIDC_ISSUER is not set: nobody can sign in")
 	}
+	server.WithGateway(os.Getenv("GATEWAY_PUBLIC_ADDR"))
+	if dir := os.Getenv("RELEASES_DIR"); dir != "" {
+		server.WithReleases(dir)
+	}
 	if key := os.Getenv("RESEND_API_KEY"); key != "" {
 		server.WithMailer(mail.Resend{APIKey: key, From: os.Getenv("MAIL_FROM")})
 	}
