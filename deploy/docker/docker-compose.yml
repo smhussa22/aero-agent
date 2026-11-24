@@ -127,6 +127,8 @@ services:
       <<: [*env, *tls]
       API_ADDR: ":8080"
       # sign-in goes through an OpenID Connect provider such as WorkOS AuthKit; see .env.example
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
       OIDC_ISSUER: ${OIDC_ISSUER:-}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
@@ -134,7 +136,9 @@ services:
       SIGNUP_OPEN: ${SIGNUP_OPEN:-0}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       MAIL_FROM: ${MAIL_FROM:-}
-    volumes: [certs:/certs:ro]
+      GATEWAY_PUBLIC_ADDR: ${GATEWAY_PUBLIC_ADDR:-}
+      RELEASES_DIR: /releases
+    volumes: [certs:/certs:ro, ./releases:/releases:ro]
     ports: ["8080:8080"]
 
   # one-off commands: docker compose run --rm -T tools hostctl add web-1
