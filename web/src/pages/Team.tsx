@@ -45,7 +45,7 @@ export function TeamPage() {
           <label className="field" style={{ flex: 2, minWidth: 220 }}><span>Email address</span>
             <input className="input" type="email" required value={email} maxLength={254} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
           </label>
-          <label className="field" style={{ width: 160 }}><span>Role</span>
+          <label className="field" style={{ width: 210 }}><span>Role</span>
             <select className="input" value={role} onChange={(e) => setRole(e.target.value as 'admin' | 'viewer')}><option value="viewer">Viewer (read-only)</option><option value="admin">Admin</option></select>
           </label>
           <button className="btn primary" type="submit" disabled={busy}><UserPlus size={16} aria-hidden /> Invite</button>

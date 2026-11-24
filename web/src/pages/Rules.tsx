@@ -44,8 +44,8 @@ export function RulesPage() {
                   <td>{r.host_id ? hosts.find((h) => h.id === r.host_id)?.name ?? 'A removed host' : 'All hosts'}</td>
                   <td><Badge tone={r.severity === 'critical' ? 'crit' : r.severity === 'warning' ? 'warn' : 'info'}>{r.severity[0].toUpperCase() + r.severity.slice(1)}</Badge></td>
                   {admin && <td style={{ whiteSpace: 'nowrap' }}>
-                    <button className="btn icon sm ghost" aria-label={`Edit ${r.name}`} onClick={() => setEditing(r)}><Pencil size={16} /></button>
-                    <button className="btn icon sm ghost" aria-label={`Delete ${r.name}`} onClick={() => remove(r)}><Trash2 size={16} /></button>
+                    <button className="btn sm ghost" aria-label={`Edit ${r.name}`} onClick={() => setEditing(r)}><Pencil size={16} aria-hidden /> Edit</button>
+                    <button className="btn sm ghost" aria-label={`Delete ${r.name}`} onClick={() => remove(r)}><Trash2 size={16} aria-hidden /> Delete</button>
                   </td>}
                 </tr>
               ))}
@@ -99,6 +99,8 @@ function RuleDialog({ rule, onClose, onSaved }: { rule: Rule | (Omit<Rule, 'id'>
           <label className="field" style={{ flex: 1, minWidth: 120 }}><span>Threshold</span><input className="input" type="number" step="any" required value={r.threshold} onChange={(e) => set('threshold', Number(e.target.value))} /></label>
           <label className="field" style={{ flex: 1, minWidth: 120 }}><span>For (seconds)</span><input className="input" type="number" min={0} max={86400} required value={r.duration_seconds} onChange={(e) => set('duration_seconds', Number(e.target.value))} /></label>
         </div>
+        {r.duration_seconds === 0 && <p className="hint" role="note">With 0 seconds, a single spike opens an incident. Use 60 or more to ignore short blips.</p>}
+        {r.metric.endsWith('_percent') && (r.operator === '>' || r.operator === '>=') && r.threshold <= 1 && <p className="hint" role="alert">This will fire almost all the time, because normal usage is above {r.threshold}%.</p>}
         <label className="field"><span>Severity</span>
           <select className="input" value={r.severity} onChange={(e) => set('severity', e.target.value as Rule['severity'])}><option value="info">Info</option><option value="warning">Warning</option><option value="critical">Critical</option></select>
         </label>

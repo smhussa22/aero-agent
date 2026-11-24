@@ -11,15 +11,19 @@ const nz = (s: string | undefined, d: number) => (s !== undefined && s.trim() !=
 export function StatWidget({ config }: WidgetProps) {
   const host = useHostId(config.host ?? '')
   const hostName = useHostName(host)
-  const { metric, label } = splitKey(config.metric ?? 'cpu.usage_percent|')
+  const { metric, label: wanted } = splitKey(config.metric ?? 'cpu.usage_percent|')
   const latest = useLatest(host)
+  // a disk tile pinned to a mount the host does not report (containers, unusual layouts) shows its fullest disk instead
+  const same = latest.data?.filter((l) => l.metric === metric) ?? []
+  const exact = same.find((l) => l.label === wanted)
+  const current = exact ?? (metric.startsWith('disk.') ? [...same].sort((a, b) => b.value - a.value)[0] : undefined)
+  const label = current?.label ?? wanted
   const trend = usePoll(async (signal) => {
     if (!host) return [] as Point[]
     const to = new Date(), from = new Date(to.getTime() - 30 * 60_000)
     return api<Point[]>(`/api/hosts/${q(host)}/metrics?metric=${q(metric)}&label=${q(label)}&from=${q(from.toISOString())}&to=${q(to.toISOString())}&bucket=60`, { signal })
   }, [host, metric, label])
 
-  const current = latest.data?.find((l) => l.metric === metric && l.label === label)
   if (!host) return <Empty title="No hosts yet">Add a host and its numbers will show here.</Empty>
   if (!current) return <Empty title="No data">{latest.loading ? 'Loading…' : `${hostName} has not reported ${metricName(metric, label)} recently.`}</Empty>
 
