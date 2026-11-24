@@ -1,0 +1,26 @@
+# Adds a local sign-in provider so you can try the whole stack on one machine:
+#   ./gen-certs.sh localhost host.docker.internal
+#   cp try/env.try .env
+#   docker compose -f docker-compose.yml -f docker-compose.try.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.try.yml run --rm tools userctl invite you@example.com admin --new-org "Try"
+# then open https://localhost:8080 (accept the self-signed certificate warning) and sign in as you@example.com / password.
+services:
+  dex:
+    image: ghcr.io/dexidp/dex:v2.41.1
+    restart: unless-stopped
+    command: dex serve /etc/dex/config.yaml
+    volumes: [./try/dex.yaml:/etc/dex/config.yaml:ro]
+    ports: ["5556:5556"]
+  # Your browser reaches Dex at localhost:5556 and the API must use the very same address. The API runs inside this
+  # container's network, where localhost:5556 is forwarded to Dex (and the web app's port is published from here).
+  dex-forward:
+    image: alpine/socat:1.8.0.0
+    restart: unless-stopped
+    command: TCP-LISTEN:5556,fork,reuseaddr TCP:dex:5556
+    ports: ["8080:8080"]
+    depends_on: [dex]
+  api:
+    network_mode: "service:dex-forward"
+    ports: !reset []
+    depends_on:
+      dex-forward: { condition: service_started }
