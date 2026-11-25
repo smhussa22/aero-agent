@@ -58,7 +58,7 @@ jobs:
           done
       - uses: actions/upload-artifact@v4
         with:
-          name: remediation
+          name: agent-remediation
           path: aero-remediation-linux-*
 
   publish:
@@ -68,6 +68,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: agent-*  # only our files, not the build records the Docker action also uploads
           merge-multiple: true
       - name: Checksums and signature
         working-directory: dist
