@@ -129,7 +129,7 @@ jobs:
       - name: Build the backend image
         run: docker build -f deploy/docker/Dockerfile -t aero-backend:ci .
       - name: Scan our image (fails on a fixable high or critical)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: aero-backend:ci
           severity: HIGH,CRITICAL
@@ -157,7 +157,7 @@ jobs:
       - run: terraform init -backend=false -input=false
       - run: terraform validate
       - name: Security misconfigurations
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           scan-ref: deploy/terraform
@@ -169,7 +169,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Look for committed secrets
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scanners: secret
