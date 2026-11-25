@@ -201,9 +201,10 @@ a.card:hover, button.card:hover, .card.link:hover { transform: translateY(-2px);
 @keyframes fade { from { opacity: 0; } }
 @keyframes slide { from { transform: translateX(24px); opacity: 0; } }
 .toasts { position: fixed; right: var(--s-4); bottom: var(--s-4); display: flex; flex-direction: column; gap: var(--s-2); z-index: 60; width: min(380px, calc(100vw - 32px)); }
-.toast { display: flex; gap: var(--s-3); padding: var(--s-3) var(--s-4); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12); animation: slide 200ms var(--ease); }
+.toast { display: flex; align-items: flex-start; gap: var(--s-3); padding: var(--s-3) var(--s-4); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12); animation: slide 200ms var(--ease); }
 .toast > div { flex: 1; min-width: 0; }
-.toast p { font-size: 14px; color: var(--ink-2); }
+.toast > .badge { flex: none; white-space: nowrap; }
+.toast p { font-size: 14px; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 
 /* ---------- dashboard grid ---------- */
 .react-grid-item { transition: none; }

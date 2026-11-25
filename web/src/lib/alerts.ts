@@ -31,8 +31,8 @@ export function deriveAlerts(hosts: Host[], incidents: Incident[], pending: Pend
     if (i.status === 'escalated') {
       out.push({
         id: `escalated:${i.id}`, kind: 'escalated', tone: 'crit',
-        title: `The fix did not help on ${i.host_name}`,
-        detail: i.summary || 'The problem persisted after the agent acted. A person needs to look.',
+        title: `The problem is still there on ${i.host_name}`,
+        detail: 'The agent ran its fix, but the metric did not recover. A person needs to look.',
         at: i.opened_at, href: `#/incidents/${i.id}`,
       })
     } else if (i.summary) {
