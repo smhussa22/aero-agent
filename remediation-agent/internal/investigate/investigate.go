@@ -53,6 +53,8 @@ type Investigator struct {
 	AI      ai.Provider
 	Gather  Gatherer
 	Catalog actions.Catalog
+	// Services restart_service may touch; the model is told, so it can tie a busy process to its service
+	Services []string
 }
 
 var tagRe = regexp.MustCompile(`(?i)<\s*/?\s*untrusted_data\s*>`)
@@ -73,7 +75,7 @@ func sanitize(s string, max int) string {
 	return s
 }
 
-func systemPrompt(c actions.Catalog) string {
+func systemPrompt(c actions.Catalog, services []string) string {
 	ids := make([]string, 0, len(c))
 	for id := range c {
 		ids = append(ids, id)
@@ -95,6 +97,14 @@ Rules you must follow:
 		}
 		sort.Strings(names)
 		fmt.Fprintf(&b, "  - %s (%s) params: %s\n", id, a.Description, strings.Join(names, ", "))
+	}
+	if _, ok := c["restart_service"]; ok {
+		if len(services) == 0 {
+			b.WriteString("- restart_service is disabled on this machine: do not propose it.\n")
+		} else {
+			// names come from the machine's own config, not from the model or the alert
+			fmt.Fprintf(&b, "- restart_service works only for these services: %s. The process list has a unit column: if the busy processes belong to one of them, proposing its restart is usually better than killing a single process.\n", strings.Join(services, ", "))
+		}
 	}
 	b.WriteString(`- Propose nothing if no listed action clearly helps. An empty list is a good answer.
 
@@ -135,7 +145,7 @@ func parse(text string) (modelReply, error) {
 
 // Investigate gathers context, asks the model, and returns only what survives validation.
 func (i *Investigator) Investigate(ctx context.Context, a Alert) (Report, error) {
-	text, err := i.AI.Complete(ctx, systemPrompt(i.Catalog), userPrompt(a, i.Gather.Gather(ctx)))
+	text, err := i.AI.Complete(ctx, systemPrompt(i.Catalog, i.Services), userPrompt(a, i.Gather.Gather(ctx)))
 	if err != nil {
 		return Report{}, err
 	}

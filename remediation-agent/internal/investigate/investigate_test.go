@@ -122,3 +122,13 @@ func TestLargeContextIsTruncated(t *testing.T) {
 		t.Fatalf("user prompt is %d bytes", len(m.user))
 	}
 }
+
+func TestSystemPromptNamesAllowedServices(t *testing.T) {
+	with := systemPrompt(actions.Default(), []string{"burn", "nginx"})
+	if !strings.Contains(with, "only for these services: burn, nginx") {
+		t.Errorf("allowed services missing from prompt:\n%s", with)
+	}
+	if without := systemPrompt(actions.Default(), nil); !strings.Contains(without, "restart_service is disabled") {
+		t.Errorf("empty list should disable restart_service:\n%s", without)
+	}
+}
