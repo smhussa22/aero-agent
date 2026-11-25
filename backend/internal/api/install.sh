@@ -51,7 +51,7 @@ cu "$base/SHA256SUMS" -o "$tmp/SHA256SUMS"
 cu "$base/SHA256SUMS.sig" -o "$tmp/SHA256SUMS.sig"
 cat >"$tmp/release.pub" <<'KEY'
 -----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAEyPG6LtGQNgGJ9jd07YSfF2s3dZcom+9lX7bVVYFlzQ=
+MCowBQYDK2VwAyEAulRaYDuiAvlW30gMMqPXY/iAumzIXN0jI9DspVK0NQM=
 -----END PUBLIC KEY-----
 KEY
 openssl pkeyutl -verify -pubin -inkey "$tmp/release.pub" -rawin -in "$tmp/SHA256SUMS" -sigfile "$tmp/SHA256SUMS.sig" >/dev/null 2>&1 ||
