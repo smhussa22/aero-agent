@@ -103,6 +103,7 @@ func (s *Service) Connect(stream aerov1.RemediationService_ConnectServer) error 
 	// the database is the source of truth for the mode; the agent may still cap it locally
 	out <- &aerov1.OrchestratorMessage{Body: &aerov1.OrchestratorMessage_ModeChange{
 		ModeChange: &aerov1.ModeChange{Mode: s.hostMode(ctx, host)}}}
+	s.replayOpen(ctx, host)
 
 	// a single goroutine owns Send, because gRPC streams allow only one concurrent sender
 	writeErr := make(chan error, 1)

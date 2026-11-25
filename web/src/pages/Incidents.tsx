@@ -70,13 +70,32 @@ function Detail({ id }: { id: string }) {
           <div className="page-head">
             <div className="grow">
               <div className="row" style={{ gap: 'var(--s-2)', marginBottom: 'var(--s-2)' }}><IncidentBadge status={data.status} /><span className="muted">{data.host_name} · opened {timeAgo(data.opened_at)}</span></div>
-              <h1>{data.summary ? 'What the AI agent found' : 'Waiting for the AI agent'}</h1>
+              <h1>{data.summary ? 'What the AI agent found' : data.trigger.metric ? 'Alert on ' + data.host_name : 'Waiting for the AI agent'}</h1>
             </div>
             <button className="btn" onClick={askAi}><Sparkles size={16} aria-hidden /> Ask my AI about this</button>
           </div>
 
+          {data.trigger.metric && (
+            <div className="card" style={{ marginBottom: 'var(--s-3)' }}>
+              <p className="label" style={{ marginBottom: 'var(--s-1)' }}>What fired</p>
+              <p style={{ overflowWrap: 'anywhere' }}>
+                <strong>{data.trigger.metric.replace(/[._]/g, ' ')}{data.trigger.label ? ` (${data.trigger.label})` : ''}</strong> was <strong>{+data.trigger.value.toFixed(2)}</strong>,
+                {' '}{data.trigger.rule ? <>rule “{data.trigger.rule}” fires when it is {data.trigger.operator} {data.trigger.threshold}.</> : <>past its limit of {data.trigger.operator} {data.trigger.threshold} (the rule has since been deleted).</>}
+              </p>
+              <p className="hint" style={{ marginTop: 'var(--s-1)' }}><a href="#/rules">View rules</a> · <a href="#/dashboard">Open the dashboard</a></p>
+            </div>
+          )}
+
           <div className="card" style={{ marginBottom: 'var(--s-5)' }}>
-            <p style={{ maxWidth: '62ch', overflowWrap: 'anywhere' }}>{data.summary || 'No remediation agent has reported on this incident yet. If one is connected for this host, it will investigate shortly.'}</p>
+            {data.summary
+              ? <p style={{ maxWidth: '62ch', overflowWrap: 'anywhere' }}>{data.summary}</p>
+              : <>
+                <p style={{ maxWidth: '62ch' }}>No AI agent has investigated this yet.</p>
+                <p className="hint" style={{ marginTop: 'var(--s-2)', maxWidth: '62ch' }}>
+                  To have your AI look into alerts like this one automatically, install the remediation agent on {data.host_name} with your own AI key (see <a href="#/hosts">Hosts</a>).
+                  Meanwhile, “Ask my AI about this” explains it using your dashboard data.
+                </p>
+              </>}
           </div>
 
           <h2 style={{ marginBottom: 'var(--s-3)' }}>Proposed fixes</h2>

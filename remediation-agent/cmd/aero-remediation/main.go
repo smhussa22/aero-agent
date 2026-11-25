@@ -101,9 +101,10 @@ func main() {
 		Audit:    audit.Tee{Primary: file, Secondary: l},
 	})
 	inv := &investigate.Investigator{
-		AI:      provider,
-		Gather:  gather.Gatherer{Runner: gather.ExecRunner{MaxBytes: 64 << 10}, Timeout: 5 * time.Second},
-		Catalog: actions.Default(),
+		AI:       provider,
+		Gather:   gather.Gatherer{Runner: gather.ExecRunner{MaxBytes: 64 << 10}, Timeout: 5 * time.Second},
+		Catalog:  actions.Default(),
+		Services: cfg.AllowedServices,
 	}
 	l.Bind(inv, ex, file)
 

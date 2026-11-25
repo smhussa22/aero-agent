@@ -50,8 +50,18 @@ func main() {
 
 	server := api.NewServer(pool)
 
-	// sign-in goes through an OpenID Connect provider (WorkOS AuthKit, Auth0, Clerk, Cognito, Keycloak, ...)
-	if issuer := os.Getenv("OIDC_ISSUER"); issuer != "" {
+	// sign-in is Supabase Auth (email and password on our own page) or, alternatively, an OpenID Connect provider
+	if sbURL := os.Getenv("SUPABASE_URL"); sbURL != "" {
+		public := os.Getenv("PUBLIC_URL")
+		open := os.Getenv("SIGNUP_OPEN") == "1"
+		svc, err := auth.NewSupabase(ctx, pool, sbURL, public, open)
+		if err != nil {
+			slog.Error("supabase setup failed", "err", err)
+			os.Exit(1)
+		}
+		server.WithAuth(svc, public).WithSupabase(sbURL, os.Getenv("SUPABASE_ANON_KEY"))
+		slog.Info("sign-in enabled with Supabase", "project", sbURL, "signup_open", open)
+	} else if issuer := os.Getenv("OIDC_ISSUER"); issuer != "" {
 		public := os.Getenv("PUBLIC_URL")
 		svc, err := auth.New(ctx, pool, auth.Config{
 			Issuer: issuer, ClientID: os.Getenv("OIDC_CLIENT_ID"), ClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
@@ -64,7 +74,11 @@ func main() {
 		server.WithAuth(svc, public)
 		slog.Info("sign-in enabled", "issuer", issuer, "signup_open", os.Getenv("SIGNUP_OPEN") == "1")
 	} else {
-		slog.Warn("OIDC_ISSUER is not set: nobody can sign in")
+		slog.Warn("neither SUPABASE_URL nor OIDC_ISSUER is set: nobody can sign in")
+	}
+	server.WithGateway(os.Getenv("GATEWAY_PUBLIC_ADDR"))
+	if dir := os.Getenv("RELEASES_DIR"); dir != "" {
+		server.WithReleases(dir)
 	}
 	if key := os.Getenv("RESEND_API_KEY"); key != "" {
 		server.WithMailer(mail.Resend{APIKey: key, From: os.Getenv("MAIL_FROM")})
@@ -76,6 +90,9 @@ func main() {
 			if o = strings.TrimSpace(o); o != "" {
 				extra = append(extra, o)
 			}
+		}
+		if sb := os.Getenv("SUPABASE_URL"); sb != "" {
+			extra = append(extra, strings.TrimRight(sb, "/")) // the login form talks to Supabase directly
 		}
 		server.WithWebApp(dir, extra)
 	}

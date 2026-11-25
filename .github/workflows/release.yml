@@ -1,0 +1,85 @@
+name: release
+
+# Push a tag like v0.1.0 to publish static binaries for amd64 and arm64, a checksum list and its signature.
+# Needs one repository secret, RELEASE_SIGNING_KEY: the PEM text of the ed25519 private key whose public half is
+# embedded in backend/internal/api/install.sh. Generate it with:  openssl genpkey -algorithm ed25519
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  monitoring-agent:
+    strategy:
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm } # native arm64, no emulation
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Static build (gRPC is compiled once and cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile.agent
+          outputs: type=local,dest=out
+          cache-from: type=gha,scope=agent-${{ matrix.arch }}
+          cache-to: type=gha,scope=agent-${{ matrix.arch }},mode=max
+      - run: mv out/aero-agent aero-agent-linux-${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-${{ matrix.arch }}
+          path: aero-agent-linux-${{ matrix.arch }}
+
+  remediation-agent:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: remediation-agent/go.mod
+          cache-dependency-path: remediation-agent/go.sum
+      - name: Generated protobuf code (the agent imports the backend's)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+          make -C backend proto
+      - name: Static builds
+        working-directory: remediation-agent
+        run: |
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w" -o ../aero-remediation-linux-$arch ./cmd/aero-remediation
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remediation
+          path: aero-remediation-linux-*
+
+  publish:
+    needs: [monitoring-agent, remediation-agent]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums and signature
+        working-directory: dist
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          test -n "$RELEASE_SIGNING_KEY" || { echo "RELEASE_SIGNING_KEY is not set"; exit 1; }
+          sha256sum aero-* > SHA256SUMS
+          printf '%s\n' "$RELEASE_SIGNING_KEY" > "$RUNNER_TEMP/key.pem"
+          openssl pkeyutl -sign -inkey "$RUNNER_TEMP/key.pem" -rawin -in SHA256SUMS -out SHA256SUMS.sig
+          shred -u "$RUNNER_TEMP/key.pem"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --generate-notes

@@ -44,6 +44,7 @@ type Service struct {
 	pool     *pgxpool.Pool
 	oauth    oauth2.Config
 	verifier *oidc.IDTokenVerifier
+	sb       *oidc.IDTokenVerifier // set when signing in with Supabase instead of an OpenID Connect provider
 	secure   bool
 }
 
@@ -103,6 +104,10 @@ func page(w http.ResponseWriter, status int, title, body string) {
 // Login starts a sign-in: it records a one-time state, nonce and PKCE verifier, ties the browser to them with a
 // cookie, and sends the browser to the provider.
 func (s *Service) Login(w http.ResponseWriter, r *http.Request) {
+	if s.verifier == nil {
+		page(w, http.StatusNotFound, "Not available", "This server signs in with email and password on its own page.")
+		return
+	}
 	state, err1 := random()
 	nonce, err2 := random()
 	if err1 != nil || err2 != nil {
@@ -125,6 +130,10 @@ func (s *Service) Login(w http.ResponseWriter, r *http.Request) {
 // Callback finishes a sign-in. The state must match the cookie that started it and can be used only once;
 // the ID token is verified (signature, issuer, audience, expiry, nonce); the email must be verified by the provider.
 func (s *Service) Callback(w http.ResponseWriter, r *http.Request) {
+	if s.verifier == nil {
+		page(w, http.StatusNotFound, "Not available", "This server signs in with email and password on its own page.")
+		return
+	}
 	q := r.URL.Query()
 	http.SetCookie(w, s.cookie(flowCookie, "", -1, "/auth")) // single use either way
 

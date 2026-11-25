@@ -1,0 +1,31 @@
+# Builds the monitoring agent as one fully static binary (musl), so it runs on any Linux with nothing installed.
+#   docker build -f deploy/docker/Dockerfile.agent -o out .      (writes out/aero-agent)
+# Build natively on each architecture (an arm64 runner for arm64); there is no cross-compiling here.
+
+FROM alpine:3.22 AS grpc
+RUN apk add --no-cache build-base cmake git linux-headers perl
+# the slow layer: gRPC with its bundled abseil, protobuf, re2, c-ares and zlib, all static. It only changes when GRPC_TAG does.
+ARG GRPC_TAG=v1.85.4
+RUN git clone --depth 1 --branch ${GRPC_TAG} --recurse-submodules --shallow-submodules https://github.com/grpc/grpc /src
+# the bundled libraries' test targets are switched off: re2's does not compile under GCC 14 and nothing needs them
+RUN cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17 -DCMAKE_INSTALL_PREFIX=/opt/grpc \
+      -DBUILD_SHARED_LIBS=OFF -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DBUILD_TESTING=OFF \
+      -DRE2_BUILD_TESTING=OFF -DABSL_BUILD_TESTING=OFF \
+      -DgRPC_BUILD_CSHARP_EXT=OFF -DgRPC_BUILD_GRPC_CSHARP_PLUGIN=OFF -DgRPC_BUILD_GRPC_NODE_PLUGIN=OFF \
+      -DgRPC_BUILD_GRPC_OBJECTIVE_C_PLUGIN=OFF -DgRPC_BUILD_GRPC_PHP_PLUGIN=OFF -DgRPC_BUILD_GRPC_PYTHON_PLUGIN=OFF \
+      -DgRPC_BUILD_GRPC_RUBY_PLUGIN=OFF \
+ && cmake --build /build -j"$(nproc)" --target install \
+ && rm -rf /src /build
+
+FROM grpc AS agent
+WORKDIR /w
+COPY proto proto
+COPY agent agent
+RUN cmake -S agent -B b -DCMAKE_BUILD_TYPE=Release -DAERO_STATIC=ON -DCMAKE_PREFIX_PATH=/opt/grpc \
+ && cmake --build b -j"$(nproc)" \
+ && ctest --test-dir b --output-on-failure \
+ && strip b/aero-agent \
+ && ! ldd b/aero-agent 2>/dev/null | grep -q '=>' # fails the build if anything is dynamically linked
+
+FROM scratch AS out
+COPY --from=agent /w/b/aero-agent /aero-agent

@@ -14,8 +14,23 @@ You need, from your stack (see `deploy/README.md`): its address, the certificate
 for this server from `hostctl add <name>`. Use one token per server; the token also fixes which host name the
 server may report as.
 
-There are no prebuilt packages yet, so both are built from source. Tested on Ubuntu 24.04 on x86-64 only.
+Releases (pushed tags `v*`) publish static `aero-agent` and `aero-remediation` binaries for amd64 and arm64, with a signed `SHA256SUMS`. Below is the build-from-source route, tested on Ubuntu 24.04 on x86-64 only.
 Other distributions and ARM (including a Raspberry Pi) should work but have not been tried.
+
+## Quick install (one line)
+
+On the dashboard, open **Hosts → Add a server**, choose **Make an install command** (tick **Also install the AI agent**
+if you want it) and copy the command. It is single-use and expires in 15 minutes. Run it as root on the server:
+
+```sh
+curl -fsSL https://your-aero/install.sh | sudo sh -s -- --server https://your-aero --code <code> [--name web-1] [--ai]
+```
+
+The binaries come from your own server (`/releases/`, built with `deploy/docker/try/build-release.sh`) or, if it hosts
+none, from the project's GitHub releases. Nothing is installed unless the checksum list carries the release signature
+and every file matches it. The server needs `GATEWAY_PUBLIC_ADDR` set. With `--ai` the installer asks for your AI
+provider and key on the server (or reads `AERO_AI_PROVIDER`, `AERO_AI_MODEL` and `AERO_AI_KEY`). The key never leaves
+that machine, and the agent starts in observe-only mode. To try this on one machine, see `deploy/docker/try/README.md`.
 
 ## 1. Monitoring agent
 

@@ -65,7 +65,7 @@ type command struct {
 
 // the fixed set of diagnostics; nothing here is influenced by alert content
 var commands = []command{
-	{"Top processes by CPU", "ps", []string{"-eo", "pid,user,comm,%cpu,%mem", "--sort=-%cpu"}, 15},
+	{"Top processes by CPU", "ps", []string{"-eo", "pid,user,unit,comm,%cpu,%mem", "--sort=-%cpu"}, 15},
 	{"Load", "uptime", nil, 3},
 	{"Memory (MB)", "free", []string{"-m"}, 5},
 	{"Disk usage", "df", []string{"-h", "-x", "tmpfs", "-x", "devtmpfs"}, 15},

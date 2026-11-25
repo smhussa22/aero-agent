@@ -6,13 +6,16 @@ import { Copy, Download, LayoutGrid, Pencil, Plus, RotateCcw, Settings2, Trash2,
 import { COLS, exportView, importView, loadDashboards, nextCell, saveDashboards, uid, type Dashboards, type View, type WidgetInstance } from '../lib/layouts'
 import { Drawer, Modal, useToast } from '../components/ui'
 import { ConfigForm } from '../widgets/ConfigForm'
+import { useLive } from '../lib/live'
+import { AddServer } from './Hosts'
+import { isAdmin } from '../components/status'
 import { isKnownWidget, registry, widgetList } from '../widgets/registry'
 
 const Grid = WidthProvider(Responsive)
 const w = (type: string, x: number, y: number, ww: number, h: number, config: Record<string, string> = {}): WidgetInstance =>
   ({ id: uid(), type, config, cell: { x, y, w: ww, h } })
 
-// What a fresh install sees: three key numbers, a chart, the alert feed, and the places to act.
+// What a fresh install sees, in the order you need it at 3am: the key numbers, then what needs you, then the detail.
 export function defaultDashboards(): Dashboards {
   const overview: View = {
     id: uid(), name: 'Overview',
@@ -21,12 +24,11 @@ export function defaultDashboards(): Dashboards {
       w('stat', 3, 0, 3, 3, { metric: 'memory.used_percent|' }),
       w('stat', 6, 0, 3, 3, { metric: 'disk.used_percent|/' }),
       w('hosts', 9, 0, 3, 3),
-      w('chart', 0, 3, 8, 6, { range: '3600', m1: 'cpu.usage_percent|', m2: 'memory.used_percent|' }),
-      w('alerts', 8, 3, 4, 6),
-      w('approvals', 0, 9, 6, 5),
-      w('incidents', 6, 9, 6, 5),
-      w('chat', 0, 14, 6, 7),
-      w('audit', 6, 14, 6, 7),
+      w('incidents', 0, 3, 7, 4),
+      w('approvals', 7, 3, 5, 4),
+      w('chart', 0, 7, 8, 6, { range: '3600', m1: 'cpu.usage_percent|', m2: 'memory.used_percent|' }),
+      w('alerts', 8, 7, 4, 6),
+      w('audit', 0, 13, 12, 6),
     ],
   }
   return { activeId: overview.id, views: [overview] }
@@ -34,6 +36,7 @@ export function defaultDashboards(): Dashboards {
 
 export function DashboardPage() {
   const toast = useToast()
+  const live = useLive()
   const [dash, setDash] = useState<Dashboards>(() => loadDashboards(isKnownWidget, defaultDashboards))
   const [editing, setEditing] = useState(false)
   const [gallery, setGallery] = useState(false)
@@ -89,6 +92,14 @@ export function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {!live.loading && live.hosts.length === 0 && (
+        <section className="card" style={{ marginBottom: 'var(--s-5)', borderColor: 'var(--accent)' }} aria-label="Connect your first server">
+          <h2>Welcome. Let’s connect your first server.</h2>
+          <p style={{ color: 'var(--ink-2)', maxWidth: '62ch', marginTop: 'var(--s-1)' }}>It takes one command on a Linux server. Your dashboard fills with live numbers within a minute, and you can turn on the AI agent whenever you like.</p>
+          <AddServer hosts={live.hosts} admin={isAdmin()} />
+        </section>
+      )}
 
       <div className="row" style={{ marginBottom: 'var(--s-4)', justifyContent: 'space-between' }}>
         <div className="views" role="group" aria-label="Dashboard views">

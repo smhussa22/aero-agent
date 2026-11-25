@@ -127,3 +127,34 @@ func (s *Service) resolveIncident(ctx context.Context, alertID string) error {
 	}
 	return nil
 }
+
+// replayOpen hands a newly connected agent the incidents it missed: ones that opened while no agent was connected
+// (the first minutes after an install, or a restart) and have no report yet. Only the last hour, at most five.
+// shortcut: an incident the agent is already investigating when it reconnects may be investigated twice; add a
+// "dispatched" marker if that ever matters.
+func (s *Service) replayOpen(ctx context.Context, host string) {
+	rows, err := s.pool.Query(ctx, `SELECT i.id::text, COALESCE(i.rule_id::text, ''), i.alert_id, a.details
+		FROM incidents i JOIN audit_log a ON a.incident_id = i.id AND a.event = 'incident_opened'
+		WHERE i.host_id = $1 AND i.status = 'open' AND i.opened_at > now() - interval '1 hour'
+		ORDER BY i.opened_at LIMIT 5`, host)
+	if err != nil {
+		slog.Error("replay of missed incidents failed", "host", host, "err", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, rule, alert string
+		var d map[string]any
+		if err := rows.Scan(&id, &rule, &alert, &d); err != nil {
+			slog.Error("replay of missed incidents failed", "host", host, "err", err)
+			return
+		}
+		metric, _ := d["metric"].(string)
+		value, _ := d["value"].(float64)
+		threshold, _ := d["threshold"].(float64)
+		sent := s.reg.send(host, &aerov1.OrchestratorMessage{Body: &aerov1.OrchestratorMessage_Investigate{
+			Investigate: &aerov1.Investigate{IncidentId: id, Alert: &aerov1.AlertEvent{
+				AlertId: alert, RuleId: rule, HostId: host, Metric: metric, Value: value, Threshold: threshold}}}})
+		slog.Info("replayed a missed incident", "incident", id, "host", host, "dispatched", sent)
+	}
+}

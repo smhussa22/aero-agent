@@ -72,3 +72,41 @@ func TestIncidentsStayInTheirHostsOrganization(t *testing.T) {
 		t.Errorf("resolve: A's incident %q (want resolved), B's incident %q (want untouched)", status, other)
 	}
 }
+
+// An incident that opened before its agent connected is handed to the agent when it connects, once, and only
+// while nobody has reported on it.
+func TestAgentGetsIncidentsItMissed(t *testing.T) {
+	pool := testdb.Open(t)
+	a := testdb.Seed(t, pool, "replay")
+	svc := NewService(pool)
+	ctx := context.Background()
+
+	ev := &aerov1.AlertEvent{AlertId: "missed-" + a.Marker, HostId: a.HostID, Metric: "cpu.usage_percent", Value: 99, Threshold: 90}
+	if err := svc.HandleAlert(ctx, alertBytes(t, ev)); err != nil { // no agent connected: nothing is sent
+		t.Fatal(err)
+	}
+
+	out := make(chan *aerov1.OrchestratorMessage, queueSize)
+	svc.reg.register(a.HostID, out)
+	svc.replayOpen(ctx, a.HostID)
+	select {
+	case m := <-out:
+		inv := m.GetInvestigate()
+		if inv == nil || inv.GetAlert().GetAlertId() != ev.AlertId || inv.GetAlert().GetMetric() != "cpu.usage_percent" || inv.GetAlert().GetValue() != 99 {
+			t.Fatalf("replayed message is wrong: %v", m)
+		}
+	default:
+		t.Fatal("the missed incident was not replayed")
+	}
+
+	// once reported on, it is not sent again
+	if _, err := pool.Exec(ctx, "UPDATE incidents SET status = 'investigating' WHERE alert_id = $1", ev.AlertId); err != nil {
+		t.Fatal(err)
+	}
+	svc.replayOpen(ctx, a.HostID)
+	select {
+	case m := <-out:
+		t.Fatalf("an incident already under investigation was replayed: %v", m)
+	default:
+	}
+}

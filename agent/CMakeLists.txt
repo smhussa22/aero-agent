@@ -5,10 +5,25 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Protobuf REQUIRED)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(GRPCPP REQUIRED IMPORTED_TARGET grpc++)
-find_program(GRPC_CPP_PLUGIN grpc_cpp_plugin REQUIRED)
+# AERO_STATIC=ON builds one fully static binary against a gRPC compiled from source (deploy/docker/Dockerfile.agent);
+# the default uses the system's gRPC through pkg-config
+option(AERO_STATIC "fully static binary against a source-built gRPC" OFF)
+if(AERO_STATIC)
+    # gRPC's config only resolves once its bundled abseil and protobuf have been found by their own configs
+    find_package(absl CONFIG REQUIRED)
+    find_package(protobuf CONFIG REQUIRED)
+    find_package(gRPC CONFIG REQUIRED)
+    set(Protobuf_PROTOC_EXECUTABLE $<TARGET_FILE:protobuf::protoc>)
+    set(GRPC_CPP_PLUGIN $<TARGET_FILE:gRPC::grpc_cpp_plugin>)
+    set(AERO_GRPC_LIBS gRPC::grpc++ protobuf::libprotobuf)
+    add_link_options(-static)
+else()
+    find_package(Protobuf REQUIRED)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(GRPCPP REQUIRED IMPORTED_TARGET grpc++)
+    find_program(GRPC_CPP_PLUGIN grpc_cpp_plugin REQUIRED)
+    set(AERO_GRPC_LIBS protobuf::libprotobuf PkgConfig::GRPCPP)
+endif()
 
 # generate C++ from the shared proto
 set(PROTO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../proto)
@@ -29,7 +44,7 @@ add_custom_command(
 
 add_library(aero_proto STATIC ${PROTO_SRCS})
 target_include_directories(aero_proto PUBLIC ${GEN_DIR})
-target_link_libraries(aero_proto PUBLIC protobuf::libprotobuf PkgConfig::GRPCPP)
+target_link_libraries(aero_proto PUBLIC ${AERO_GRPC_LIBS})
 
 add_library(aero_collectors STATIC
     src/CpuCollector.cc
